@@ -27,7 +27,7 @@
       "favicon": "./assets/favicon.png"
     },
 
-    "platforms": ["android", "ios"],
+    "platforms": ["android", "ios", "web"],
     "scheme": "neurogut"
   }
 }
