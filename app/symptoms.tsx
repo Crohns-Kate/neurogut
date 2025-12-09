@@ -6,9 +6,11 @@ import {
   StyleSheet,
   TextInput,
   ScrollView,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { colors, typography, spacing, radius, safeArea } from "../styles/theme";
 
 type SymptomEntry = {
   id: string;
@@ -178,7 +180,7 @@ export default function SymptomTrackingScreen() {
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
     >
-      <TouchableOpacity onPress={() => router.back()}>
+      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
@@ -199,7 +201,7 @@ export default function SymptomTrackingScreen() {
           value={notes}
           onChangeText={setNotes}
           placeholder="Any additional notes..."
-          placeholderTextColor="#6B7280"
+          placeholderTextColor={colors.textMuted}
           multiline
           numberOfLines={3}
           textAlignVertical="top"
@@ -259,37 +261,40 @@ export default function SymptomTrackingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#05060A",
+    backgroundColor: colors.background,
   },
   contentContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingHorizontal: safeArea.horizontal,
+    paddingTop: Platform.OS === "ios" ? safeArea.top + spacing.lg : safeArea.top,
+  },
+  backButton: {
+    marginBottom: spacing.base,
   },
   backText: {
-    color: "#9CA3AF",
-    marginBottom: 16,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
   },
   title: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: "white",
-    marginBottom: 8,
+    fontSize: typography.sizes["2xl"],
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: "#9CA3AF",
-    marginBottom: 28,
-    lineHeight: 20,
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    marginBottom: spacing.xl,
+    lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
   },
   // Rating selector styles
   ratingGroup: {
-    marginBottom: 20,
+    marginBottom: spacing.lg,
   },
   ratingLabel: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 10,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.sm,
   },
   ratingRow: {
     flexDirection: "row",
@@ -298,101 +303,102 @@ const styles = StyleSheet.create({
   ratingButton: {
     width: 28,
     height: 36,
-    borderRadius: 6,
-    backgroundColor: "#111827",
+    borderRadius: radius.sm,
+    backgroundColor: colors.backgroundCard,
     borderWidth: 1,
-    borderColor: "#1F2937",
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
   ratingButtonActive: {
-    backgroundColor: "#1D4ED8",
-    borderColor: "#1D4ED8",
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   ratingButtonText: {
-    color: "#9CA3AF",
-    fontSize: 13,
-    fontWeight: "500",
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
   },
   ratingButtonTextActive: {
-    color: "white",
-    fontWeight: "700",
+    color: colors.background,
+    fontWeight: typography.weights.bold,
   },
   // Notes input styles
   notesGroup: {
-    marginBottom: 24,
+    marginBottom: spacing.xl,
   },
   notesLabel: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 10,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.sm,
   },
   notesInput: {
-    backgroundColor: "#111827",
+    backgroundColor: colors.backgroundCard,
     borderWidth: 1,
-    borderColor: "#1F2937",
-    borderRadius: 8,
-    padding: 12,
-    color: "white",
-    fontSize: 15,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.base,
     minHeight: 80,
   },
   // Button styles
   buttonRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 36,
+    gap: spacing.md,
+    marginBottom: spacing["2xl"],
   },
   clearButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
-    backgroundColor: "#111827",
+    paddingVertical: spacing.base,
+    borderRadius: radius.sm,
+    backgroundColor: colors.backgroundCard,
     borderWidth: 1,
-    borderColor: "#1F2937",
+    borderColor: colors.border,
     alignItems: "center",
   },
   clearButtonText: {
-    color: "#9CA3AF",
-    fontSize: 15,
-    fontWeight: "600",
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
   },
   saveButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
-    backgroundColor: "#1D4ED8",
+    paddingVertical: spacing.base,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
     alignItems: "center",
   },
   saveButtonText: {
-    color: "white",
-    fontSize: 15,
-    fontWeight: "600",
+    color: colors.background,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
   },
   // History section styles
   sectionTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 16,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.base,
   },
   emptyText: {
-    color: "#6B7280",
-    marginBottom: 32,
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+    marginBottom: spacing["2xl"],
   },
   entryCard: {
-    backgroundColor: "#111827",
-    padding: 14,
-    borderRadius: 10,
-    marginBottom: 12,
+    backgroundColor: colors.backgroundCard,
+    padding: spacing.base,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: "#1F2937",
+    borderColor: colors.border,
   },
   entryDate: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginBottom: 10,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.xs,
+    marginBottom: spacing.sm,
   },
   entrySummary: {
     flexDirection: "row",
@@ -402,22 +408,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   metricLabel: {
-    color: "#6B7280",
-    fontSize: 11,
-    marginBottom: 4,
+    color: colors.textMuted,
+    fontSize: typography.sizes.xs,
+    marginBottom: spacing.xs,
   },
   metricValue: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
+    color: colors.accent,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
   },
   entryNotes: {
-    color: "#9CA3AF",
-    fontSize: 13,
-    marginTop: 10,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    marginTop: spacing.sm,
     fontStyle: "italic",
   },
   bottomSpacer: {
-    height: 40,
+    height: spacing["3xl"],
   },
 });
