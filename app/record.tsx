@@ -6,10 +6,12 @@ import {
   StyleSheet,
   FlatList,
   Alert,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
+import { colors, typography, spacing, radius, safeArea } from "../styles/theme";
 
 type SavedRecording = {
   id: string;
@@ -30,6 +32,8 @@ function formatDuration(ms: number): string {
 function formatRelativeDate(dateStr: string): string {
   try {
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "Unknown date";
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const recordDay = new Date(
@@ -59,7 +63,7 @@ function formatRelativeDate(dateStr: string): string {
       minute: "2-digit",
     });
   } catch {
-    return dateStr;
+    return "Unknown date";
   }
 }
 
@@ -99,11 +103,27 @@ export default function GutSoundRecordingScreen() {
         const uri = `${RECORDINGS_DIR}${file}`;
         const fileInfo = file.replace("gut-", "").replace(".m4a", "");
 
-        // Parse date from filename
+        // Parse date from filename (format: 2025-12-08T07-11-36-123Z)
         let dateStr: string;
         try {
-          const parsed = fileInfo.replace(/-/g, ":").replace("T", " ");
-          dateStr = new Date(parsed).toISOString();
+          // Convert filename back to ISO format
+          const parts = fileInfo.split("T");
+          if (parts.length === 2) {
+            const datePart = parts[0];
+            const timePart = parts[1];
+            const timeSegments = timePart.replace("Z", "").split("-");
+            if (timeSegments.length >= 3) {
+              const hours = timeSegments[0];
+              const minutes = timeSegments[1];
+              const seconds = timeSegments[2];
+              const ms = timeSegments[3] || "000";
+              dateStr = new Date(`${datePart}T${hours}:${minutes}:${seconds}.${ms}Z`).toISOString();
+            } else {
+              dateStr = new Date().toISOString();
+            }
+          } else {
+            dateStr = new Date().toISOString();
+          }
         } catch {
           dateStr = new Date().toISOString();
         }
@@ -128,7 +148,6 @@ export default function GutSoundRecordingScreen() {
         });
       }
 
-      // Sort by id (timestamp) descending
       recordingsWithDuration.sort((a, b) => b.id.localeCompare(a.id));
       setSavedRecordings(recordingsWithDuration);
     } catch (err) {
@@ -140,7 +159,6 @@ export default function GutSoundRecordingScreen() {
     loadRecordings();
 
     return () => {
-      // Cleanup on unmount
       if (soundRef.current) {
         soundRef.current.unloadAsync();
       }
@@ -163,7 +181,6 @@ export default function GutSoundRecordingScreen() {
         if (!ok) return;
       }
 
-      // Stop any playing audio
       await stopPlayback();
 
       await Audio.setAudioModeAsync({
@@ -180,7 +197,6 @@ export default function GutSoundRecordingScreen() {
       setIsRecording(true);
       setRecordingDuration(0);
 
-      // Start timer
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration((prev) => prev + 1000);
       }, 1000);
@@ -193,7 +209,6 @@ export default function GutSoundRecordingScreen() {
     try {
       if (!recording) return;
 
-      // Stop timer
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
@@ -238,7 +253,6 @@ export default function GutSoundRecordingScreen() {
     }
   };
 
-  // Playback functions
   const stopPlayback = async () => {
     if (soundRef.current) {
       await soundRef.current.stopAsync();
@@ -251,23 +265,19 @@ export default function GutSoundRecordingScreen() {
 
   const handlePlayPause = async (item: SavedRecording) => {
     try {
-      // If this recording is already playing, stop it
       if (playingId === item.id) {
         await stopPlayback();
         return;
       }
 
-      // Stop any current playback
       await stopPlayback();
 
-      // Set audio mode for playback
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
         staysActiveInBackground: false,
       });
 
-      // Load and play new sound
       const { sound } = await Audio.Sound.createAsync(
         { uri: item.uri },
         { shouldPlay: true },
@@ -303,7 +313,6 @@ export default function GutSoundRecordingScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              // Stop if playing
               if (playingId === item.id) {
                 await stopPlayback();
               }
@@ -360,7 +369,7 @@ export default function GutSoundRecordingScreen() {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={() => router.back()}>
+      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
@@ -374,6 +383,7 @@ export default function GutSoundRecordingScreen() {
         <TouchableOpacity
           style={[styles.recordButton, isRecording && styles.recordButtonActive]}
           onPress={handleToggleRecording}
+          activeOpacity={0.8}
         >
           <Text style={styles.recordButtonIcon}>
             {isRecording ? "⏹" : "●"}
@@ -427,148 +437,152 @@ export default function GutSoundRecordingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#05060A",
-    paddingHorizontal: 20,
-    paddingTop: 60,
+    backgroundColor: colors.background,
+    paddingHorizontal: safeArea.horizontal,
+    paddingTop: Platform.OS === "ios" ? safeArea.top + spacing.lg : safeArea.top,
+  },
+  backButton: {
+    marginBottom: spacing.base,
   },
   backText: {
-    color: "#9CA3AF",
-    marginBottom: 16,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "white",
-    marginBottom: 8,
+    fontSize: typography.sizes["2xl"],
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: "#9CA3AF",
-    marginBottom: 28,
-    lineHeight: 20,
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    marginBottom: spacing.xl,
+    lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
   },
   recordSection: {
     alignItems: "center",
-    marginBottom: 28,
+    marginBottom: spacing.xl,
   },
   recordButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#1D4ED8",
-    paddingVertical: 18,
-    paddingHorizontal: 32,
-    borderRadius: 999,
-    gap: 10,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing["2xl"],
+    borderRadius: radius.full,
+    gap: spacing.sm,
   },
   recordButtonActive: {
-    backgroundColor: "#DC2626",
+    backgroundColor: colors.error,
   },
   recordButtonIcon: {
-    color: "white",
-    fontSize: 18,
+    color: colors.background,
+    fontSize: typography.sizes.lg,
   },
   recordButtonText: {
-    color: "white",
-    fontSize: 17,
-    fontWeight: "600",
+    color: colors.background,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
   },
   recordingIndicator: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 16,
-    gap: 8,
+    marginTop: spacing.base,
+    gap: spacing.sm,
   },
   recordingDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: "#DC2626",
+    backgroundColor: colors.error,
   },
   recordingTime: {
-    color: "#DC2626",
-    fontSize: 20,
-    fontWeight: "600",
+    color: colors.error,
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.semibold,
     fontVariant: ["tabular-nums"],
   },
   warning: {
-    color: "#F97316",
-    marginBottom: 16,
+    color: colors.warning,
+    marginBottom: spacing.base,
     textAlign: "center",
+    fontSize: typography.sizes.sm,
   },
   sectionTitle: {
-    color: "white",
-    fontSize: 17,
-    fontWeight: "600",
-    marginBottom: 16,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.base,
   },
   emptyState: {
     alignItems: "center",
-    paddingVertical: 48,
+    paddingVertical: spacing["4xl"],
   },
   emptyIcon: {
     fontSize: 48,
-    marginBottom: 16,
+    marginBottom: spacing.base,
   },
   emptyText: {
-    color: "#9CA3AF",
-    fontSize: 16,
-    fontWeight: "500",
-    marginBottom: 4,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.medium,
+    marginBottom: spacing.xs,
   },
   emptySubtext: {
-    color: "#6B7280",
-    fontSize: 14,
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
     textAlign: "center",
   },
   listContent: {
-    paddingBottom: 32,
+    paddingBottom: spacing["2xl"],
   },
   recordCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#111827",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    backgroundColor: colors.backgroundCard,
+    padding: spacing.base,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: "#1F2937",
+    borderColor: colors.border,
   },
   recordInfo: {
     flex: 1,
   },
   recordDate: {
-    color: "white",
-    fontSize: 15,
-    fontWeight: "500",
-    marginBottom: 4,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.medium,
+    marginBottom: spacing.xs,
   },
   recordDuration: {
-    color: "#9CA3AF",
-    fontSize: 13,
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
     fontVariant: ["tabular-nums"],
   },
   recordActions: {
     flexDirection: "row",
-    gap: 10,
+    gap: spacing.sm,
   },
   actionButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#1F2937",
+    backgroundColor: colors.backgroundElevated,
     alignItems: "center",
     justifyContent: "center",
   },
   actionButtonActive: {
-    backgroundColor: "#1D4ED8",
+    backgroundColor: colors.accent,
   },
   actionButtonText: {
-    color: "white",
-    fontSize: 16,
+    color: colors.textPrimary,
+    fontSize: typography.sizes.base,
   },
   deleteButton: {
-    backgroundColor: "#371520",
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
   },
 });
