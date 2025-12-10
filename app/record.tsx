@@ -457,6 +457,11 @@ export default function GutSoundRecordingScreen() {
         };
 
         setSavedRecordings((prev) => [newItem, ...prev]);
+
+        // Navigate to session detail to show results
+        setPhase("setup");
+        router.push(`/session/${session.id}`);
+        return;
       }
 
       setPhase("setup");
