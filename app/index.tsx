@@ -41,6 +41,7 @@ export default function HomeScreen() {
   const [recordingCount, setRecordingCount] = useState<number | null>(null);
   const [lastSymptomDate, setLastSymptomDate] = useState<string | null>(null);
   const [recentSessions, setRecentSessions] = useState<GutRecordingSession[]>([]);
+  const [sessionCount, setSessionCount] = useState<number>(0);
 
   const loadStats = useCallback(async () => {
     // Load recording count
@@ -82,12 +83,16 @@ export default function HomeScreen() {
       setLastSymptomDate(null);
     }
 
-    // Load recent sessions
+    // Load recent sessions and count
     try {
       const sessions = await getSessionsSortedByDate(3);
       setRecentSessions(sessions);
+      // Get total session count for insights status
+      const allSessions = await getSessionsSortedByDate();
+      setSessionCount(allSessions.length);
     } catch {
       setRecentSessions([]);
+      setSessionCount(0);
     }
   }, []);
 
@@ -136,6 +141,14 @@ export default function HomeScreen() {
     return `Last: ${lastSymptomDate}`;
   };
 
+  const getInsightsStatus = (): string => {
+    if (sessionCount === 0) return "Record to unlock";
+    if (sessionCount === 1) return "1 session • Basic insights";
+    if (sessionCount < 3) return `${sessionCount} sessions • Growing`;
+    if (sessionCount < 5) return `${sessionCount} sessions • Charts ready`;
+    return `${sessionCount} sessions • Full insights`;
+  };
+
   const features: FeatureCard[] = [
     {
       id: "recording",
@@ -159,7 +172,7 @@ export default function HomeScreen() {
       title: "AI Gut Insights",
       description: "Pattern analysis and recommendations",
       route: "/analysis",
-      getStatus: () => "Coming soon",
+      getStatus: getInsightsStatus,
     },
   ];
 
