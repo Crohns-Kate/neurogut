@@ -1,11 +1,19 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Platform } from "react-native";
+import { View, Text, StyleSheet, Platform, TouchableOpacity, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import { colors, typography, spacing, radius, safeArea } from "../styles/theme";
 import PrimaryButton from "../components/PrimaryButton";
+import {
+  GutRecordingSession,
+  PROTOCOL_CONFIG,
+  getMotilityCategory,
+  getMotilityCategoryLabel,
+  MotilityCategory,
+} from "../src/models/session";
+import { getSessionsSortedByDate } from "../src/storage/sessionStore";
 
 const RECORDINGS_DIR = `${FileSystem.documentDirectory || ""}recordings/`;
 const SYMPTOM_STORAGE_KEY = "symptomEntries";
@@ -21,10 +29,18 @@ type FeatureCard = {
   accentColor?: string;
 };
 
+// Motility badge colors
+const motilityColors: Record<MotilityCategory, { bg: string; text: string }> = {
+  quiet: { bg: "rgba(59, 130, 246, 0.15)", text: colors.info },
+  normal: { bg: colors.accentDim, text: colors.accent },
+  active: { bg: "rgba(34, 197, 94, 0.15)", text: colors.success },
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const [recordingCount, setRecordingCount] = useState<number | null>(null);
   const [lastSymptomDate, setLastSymptomDate] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<GutRecordingSession[]>([]);
 
   const loadStats = useCallback(async () => {
     // Load recording count
@@ -64,6 +80,14 @@ export default function HomeScreen() {
       }
     } catch {
       setLastSymptomDate(null);
+    }
+
+    // Load recent sessions
+    try {
+      const sessions = await getSessionsSortedByDate(3);
+      setRecentSessions(sessions);
+    } catch {
+      setRecentSessions([]);
     }
   }, []);
 
@@ -139,8 +163,13 @@ export default function HomeScreen() {
     },
   ];
 
+  const formatSessionDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header Section */}
       <View style={styles.header}>
         <View style={styles.brandContainer}>
@@ -189,12 +218,66 @@ export default function HomeScreen() {
         ))}
       </View>
 
+      {/* Recent Sessions */}
+      {recentSessions.length > 0 && (
+        <View style={styles.sessionsSection}>
+          <Text style={styles.sectionTitle}>Recent Sessions</Text>
+          {recentSessions.map((session) => {
+            const protocol = PROTOCOL_CONFIG[session.protocolType];
+            const category = session.analytics
+              ? getMotilityCategory(session.analytics.motilityIndex)
+              : "normal";
+            const categoryColors = motilityColors[category];
+
+            return (
+              <TouchableOpacity
+                key={session.id}
+                style={styles.sessionCard}
+                onPress={() => router.push(`/session/${session.id}`)}
+              >
+                <View style={styles.sessionInfo}>
+                  <Text style={styles.sessionProtocol}>{protocol.label}</Text>
+                  <Text style={styles.sessionTime}>
+                    {formatRelativeDate(session.createdAt)}
+                  </Text>
+                </View>
+
+                {session.analytics && (
+                  <View style={styles.sessionMetrics}>
+                    <Text style={styles.motilityValue}>
+                      {session.analytics.motilityIndex}
+                    </Text>
+                    <View
+                      style={[
+                        styles.motilityBadge,
+                        { backgroundColor: categoryColors.bg },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.motilityBadgeText,
+                          { color: categoryColors.text },
+                        ]}
+                      >
+                        {getMotilityCategoryLabel(category)}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <Text style={styles.sessionArrow}>›</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
       {/* Footer */}
       <View style={styles.footer}>
         <View style={styles.footerDivider} />
         <Text style={styles.footerText}>Track daily for better insights</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -203,6 +286,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     paddingHorizontal: safeArea.horizontal,
+    paddingBottom: spacing["2xl"],
   },
 
   // Header
@@ -305,6 +389,63 @@ const styles = StyleSheet.create({
   featureButton: {
     paddingHorizontal: spacing.lg,
     minWidth: 80,
+  },
+
+  // Sessions Section
+  sessionsSection: {
+    marginTop: spacing.xl,
+  },
+  sectionTitle: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
+  },
+  sessionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.backgroundCard,
+    padding: spacing.base,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sessionInfo: {
+    flex: 1,
+  },
+  sessionProtocol: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  sessionTime: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+  },
+  sessionMetrics: {
+    alignItems: "flex-end",
+    marginRight: spacing.sm,
+  },
+  motilityValue: {
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  motilityBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    marginTop: spacing.xs,
+  },
+  motilityBadgeText: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.medium,
+  },
+  sessionArrow: {
+    fontSize: typography.sizes.xl,
+    color: colors.textMuted,
   },
 
   // Footer
