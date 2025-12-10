@@ -7,20 +7,37 @@ import {
   FlatList,
   Alert,
   Platform,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { colors, typography, spacing, radius, safeArea } from "../styles/theme";
+import {
+  RecordingProtocolType,
+  PROTOCOL_CONFIG,
+  MealTiming,
+  MEAL_TIMING_OPTIONS,
+  PostureType,
+  POSTURE_OPTIONS,
+  SessionContext,
+  DEFAULT_SESSION_CONTEXT,
+  createSession,
+} from "../src/models/session";
+import { addSession } from "../src/storage/sessionStore";
 
 type SavedRecording = {
   id: string;
   uri: string;
   createdAt: string;
   durationMs: number;
+  protocolType?: RecordingProtocolType;
 };
 
 const RECORDINGS_DIR = `${FileSystem.documentDirectory || ""}recordings/`;
+
+// Recording phases
+type RecordingPhase = "setup" | "recording" | "processing";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -67,12 +84,182 @@ function formatRelativeDate(dateStr: string): string {
   }
 }
 
+// Protocol selector component
+function ProtocolSelector({
+  selected,
+  onSelect,
+}: {
+  selected: RecordingProtocolType;
+  onSelect: (p: RecordingProtocolType) => void;
+}) {
+  const protocols: RecordingProtocolType[] = ["quick_check", "post_meal", "mind_body"];
+
+  return (
+    <View style={styles.selectorContainer}>
+      <Text style={styles.selectorLabel}>Protocol</Text>
+      <View style={styles.protocolButtons}>
+        {protocols.map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={[
+              styles.protocolButton,
+              selected === p && styles.protocolButtonActive,
+            ]}
+            onPress={() => onSelect(p)}
+          >
+            <Text
+              style={[
+                styles.protocolButtonText,
+                selected === p && styles.protocolButtonTextActive,
+              ]}
+            >
+              {PROTOCOL_CONFIG[p].label}
+            </Text>
+            <Text
+              style={[
+                styles.protocolDuration,
+                selected === p && styles.protocolDurationActive,
+              ]}
+            >
+              {Math.floor(PROTOCOL_CONFIG[p].durationSeconds / 60)} min
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={styles.protocolDescription}>
+        {PROTOCOL_CONFIG[selected].description}
+      </Text>
+    </View>
+  );
+}
+
+// Meal timing selector
+function MealTimingSelector({
+  selected,
+  onSelect,
+}: {
+  selected: MealTiming;
+  onSelect: (m: MealTiming) => void;
+}) {
+  return (
+    <View style={styles.selectorContainer}>
+      <Text style={styles.selectorLabel}>Since last meal</Text>
+      <View style={styles.optionRow}>
+        {MEAL_TIMING_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.value}
+            style={[
+              styles.optionButton,
+              selected === opt.value && styles.optionButtonActive,
+            ]}
+            onPress={() => onSelect(opt.value)}
+          >
+            <Text
+              style={[
+                styles.optionButtonText,
+                selected === opt.value && styles.optionButtonTextActive,
+              ]}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// Stress level slider (0-10 as buttons)
+function StressSelector({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <View style={styles.selectorContainer}>
+      <Text style={styles.selectorLabel}>Stress level</Text>
+      <View style={styles.stressRow}>
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+          <TouchableOpacity
+            key={num}
+            style={[
+              styles.stressButton,
+              value === num && styles.stressButtonActive,
+            ]}
+            onPress={() => onChange(num)}
+          >
+            <Text
+              style={[
+                styles.stressButtonText,
+                value === num && styles.stressButtonTextActive,
+              ]}
+            >
+              {num}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={styles.stressLabels}>
+        <Text style={styles.stressLabelText}>Calm</Text>
+        <Text style={styles.stressLabelText}>Very stressed</Text>
+      </View>
+    </View>
+  );
+}
+
+// Posture selector
+function PostureSelector({
+  selected,
+  onSelect,
+}: {
+  selected: PostureType;
+  onSelect: (p: PostureType) => void;
+}) {
+  return (
+    <View style={styles.selectorContainer}>
+      <Text style={styles.selectorLabel}>Posture</Text>
+      <View style={styles.optionRow}>
+        {POSTURE_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.value}
+            style={[
+              styles.optionButton,
+              selected === opt.value && styles.optionButtonActive,
+            ]}
+            onPress={() => onSelect(opt.value)}
+          >
+            <Text
+              style={[
+                styles.optionButtonText,
+                selected === opt.value && styles.optionButtonTextActive,
+              ]}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function GutSoundRecordingScreen() {
   const router = useRouter();
   const [permissionStatus, setPermissionStatus] = useState<
     "undetermined" | "granted" | "denied"
   >("undetermined");
-  const [isRecording, setIsRecording] = useState(false);
+
+  // Recording phase state
+  const [phase, setPhase] = useState<RecordingPhase>("setup");
+
+  // Protocol and context state
+  const [selectedProtocol, setSelectedProtocol] =
+    useState<RecordingProtocolType>("quick_check");
+  const [context, setContext] = useState<SessionContext>(DEFAULT_SESSION_CONTEXT);
+
+  // Recording state
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [savedRecordings, setSavedRecordings] = useState<SavedRecording[]>([]);
@@ -82,6 +269,8 @@ export default function GutSoundRecordingScreen() {
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const targetDuration = PROTOCOL_CONFIG[selectedProtocol].durationSeconds * 1000;
 
   // Load recordings on mount
   const loadRecordings = useCallback(async () => {
@@ -103,10 +292,9 @@ export default function GutSoundRecordingScreen() {
         const uri = `${RECORDINGS_DIR}${file}`;
         const fileInfo = file.replace("gut-", "").replace(".m4a", "");
 
-        // Parse date from filename (format: 2025-12-08T07-11-36-123Z)
+        // Parse date from filename
         let dateStr: string;
         try {
-          // Convert filename back to ISO format
           const parts = fileInfo.split("T");
           if (parts.length === 2) {
             const datePart = parts[0];
@@ -117,7 +305,9 @@ export default function GutSoundRecordingScreen() {
               const minutes = timeSegments[1];
               const seconds = timeSegments[2];
               const ms = timeSegments[3] || "000";
-              dateStr = new Date(`${datePart}T${hours}:${minutes}:${seconds}.${ms}Z`).toISOString();
+              dateStr = new Date(
+                `${datePart}T${hours}:${minutes}:${seconds}.${ms}Z`
+              ).toISOString();
             } else {
               dateStr = new Date().toISOString();
             }
@@ -168,6 +358,13 @@ export default function GutSoundRecordingScreen() {
     };
   }, [loadRecordings]);
 
+  // Auto-stop when duration reached
+  useEffect(() => {
+    if (phase === "recording" && recordingDuration >= targetDuration) {
+      stopRecording();
+    }
+  }, [recordingDuration, targetDuration, phase]);
+
   const requestPermission = async () => {
     const { status } = await Audio.requestPermissionsAsync();
     setPermissionStatus(status === "granted" ? "granted" : "denied");
@@ -194,7 +391,7 @@ export default function GutSoundRecordingScreen() {
       );
 
       setRecording(newRecording);
-      setIsRecording(true);
+      setPhase("recording");
       setRecordingDuration(0);
 
       recordingTimerRef.current = setInterval(() => {
@@ -214,11 +411,12 @@ export default function GutSoundRecordingScreen() {
         recordingTimerRef.current = null;
       }
 
+      setPhase("processing");
+
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       const finalDuration = recordingDuration;
 
-      setIsRecording(false);
       setRecording(null);
       setRecordingDuration(0);
 
@@ -231,26 +429,41 @@ export default function GutSoundRecordingScreen() {
           to: targetUri,
         });
 
+        // Create and save session to the new store
+        const session = createSession(
+          selectedProtocol,
+          targetUri,
+          Math.floor(finalDuration / 1000),
+          context
+        );
+
+        await addSession(session);
+
+        // Also update local list for display
         const newItem: SavedRecording = {
           id: timestamp,
           uri: targetUri,
           createdAt: new Date().toISOString(),
           durationMs: finalDuration,
+          protocolType: selectedProtocol,
         };
 
         setSavedRecordings((prev) => [newItem, ...prev]);
       }
+
+      setPhase("setup");
     } catch (err) {
       console.error("Error stopping recording:", err);
+      setPhase("setup");
     }
   };
 
-  const handleToggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
+  const handleStartRecording = () => {
+    startRecording();
+  };
+
+  const handleStopRecording = () => {
+    stopRecording();
   };
 
   const stopPlayback = async () => {
@@ -367,6 +580,10 @@ export default function GutSoundRecordingScreen() {
     );
   };
 
+  // Calculate progress for recording
+  const progressPercent = Math.min((recordingDuration / targetDuration) * 100, 100);
+  const remainingMs = Math.max(targetDuration - recordingDuration, 0);
+
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -374,61 +591,134 @@ export default function GutSoundRecordingScreen() {
       </TouchableOpacity>
 
       <Text style={styles.title}>Gut Sound Recording</Text>
-      <Text style={styles.subtitle}>
-        Find a quiet spot, relax your belly, and tap the button to capture
-        gurgles.
-      </Text>
 
-      <View style={styles.recordSection}>
-        <TouchableOpacity
-          style={[styles.recordButton, isRecording && styles.recordButtonActive]}
-          onPress={handleToggleRecording}
-          activeOpacity={0.8}
+      {phase === "setup" && (
+        <ScrollView
+          style={styles.setupScrollView}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.recordButtonIcon}>
-            {isRecording ? "⏹" : "●"}
+          <Text style={styles.subtitle}>
+            Set up your recording session, then relax and capture your gut sounds.
           </Text>
-          <Text style={styles.recordButtonText}>
-            {isRecording ? "Stop Recording" : "Start Recording"}
-          </Text>
-        </TouchableOpacity>
 
-        {isRecording && (
-          <View style={styles.recordingIndicator}>
-            <View style={styles.recordingDot} />
-            <Text style={styles.recordingTime}>
-              {formatDuration(recordingDuration)}
+          <ProtocolSelector
+            selected={selectedProtocol}
+            onSelect={setSelectedProtocol}
+          />
+
+          <MealTimingSelector
+            selected={context.mealTiming}
+            onSelect={(m) => setContext({ ...context, mealTiming: m })}
+          />
+
+          <StressSelector
+            value={context.stressLevel}
+            onChange={(v) => setContext({ ...context, stressLevel: v })}
+          />
+
+          <PostureSelector
+            selected={context.posture}
+            onSelect={(p) => setContext({ ...context, posture: p })}
+          />
+
+          <TouchableOpacity
+            style={styles.startButton}
+            onPress={handleStartRecording}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.startButtonIcon}>●</Text>
+            <Text style={styles.startButtonText}>Start Recording</Text>
+          </TouchableOpacity>
+
+          {permissionStatus === "denied" && (
+            <Text style={styles.warning}>
+              Microphone permission denied. Please enable it in system settings.
             </Text>
-          </View>
-        )}
-      </View>
+          )}
 
-      {permissionStatus === "denied" && (
-        <Text style={styles.warning}>
-          Microphone permission denied. Please enable it in system settings.
-        </Text>
+          <Text style={styles.sectionTitle}>
+            Recent Recordings ({savedRecordings.length})
+          </Text>
+
+          {savedRecordings.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>🎙</Text>
+              <Text style={styles.emptyText}>No recordings yet</Text>
+              <Text style={styles.emptySubtext}>
+                Set your preferences and tap Start Recording
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={savedRecordings.slice(0, 5)}
+              keyExtractor={(item) => item.id}
+              renderItem={renderRecordingItem}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={false}
+            />
+          )}
+
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
       )}
 
-      <Text style={styles.sectionTitle}>
-        Your Recordings ({savedRecordings.length})
-      </Text>
+      {phase === "recording" && (
+        <View style={styles.recordingPhase}>
+          <View style={styles.timerContainer}>
+            <Text style={styles.timerLabel}>Recording</Text>
+            <Text style={styles.timerText}>{formatDuration(recordingDuration)}</Text>
+            <Text style={styles.timerRemaining}>
+              {formatDuration(remainingMs)} remaining
+            </Text>
 
-      {savedRecordings.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>🎙</Text>
-          <Text style={styles.emptyText}>No recordings yet</Text>
-          <Text style={styles.emptySubtext}>
-            Tap the button above to capture your first gut sounds
-          </Text>
+            {/* Progress bar */}
+            <View style={styles.progressBar}>
+              <View
+                style={[styles.progressFill, { width: `${progressPercent}%` }]}
+              />
+            </View>
+
+            <Text style={styles.protocolLabel}>
+              {PROTOCOL_CONFIG[selectedProtocol].label}
+            </Text>
+          </View>
+
+          {/* Recording indicator */}
+          <View style={styles.recordingIndicator}>
+            <View style={styles.recordingDot} />
+            <Text style={styles.recordingText}>Listening...</Text>
+          </View>
+
+          {/* Context summary */}
+          <View style={styles.contextSummary}>
+            <Text style={styles.contextItem}>
+              Stress: {context.stressLevel}/10
+            </Text>
+            <Text style={styles.contextItem}>
+              {POSTURE_OPTIONS.find((p) => p.value === context.posture)?.label}
+            </Text>
+            <Text style={styles.contextItem}>
+              {MEAL_TIMING_OPTIONS.find((m) => m.value === context.mealTiming)?.label}{" "}
+              since meal
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.stopButton}
+            onPress={handleStopRecording}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.stopButtonIcon}>⏹</Text>
+            <Text style={styles.stopButtonText}>Stop Early</Text>
+          </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={savedRecordings}
-          keyExtractor={(item) => item.id}
-          renderItem={renderRecordingItem}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-        />
+      )}
+
+      {phase === "processing" && (
+        <View style={styles.processingPhase}>
+          <Text style={styles.processingIcon}>⏳</Text>
+          <Text style={styles.processingText}>Saving recording...</Text>
+        </View>
       )}
     </View>
   );
@@ -460,11 +750,121 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
     lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
   },
-  recordSection: {
-    alignItems: "center",
-    marginBottom: spacing.xl,
+  setupScrollView: {
+    flex: 1,
   },
-  recordButton: {
+  // Selector styles
+  selectorContainer: {
+    marginBottom: spacing.lg,
+  },
+  selectorLabel: {
+    color: colors.textPrimary,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.sm,
+  },
+  protocolButtons: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  protocolButton: {
+    flex: 1,
+    padding: spacing.md,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+  },
+  protocolButtonActive: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+  },
+  protocolButtonText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  protocolButtonTextActive: {
+    color: colors.accent,
+  },
+  protocolDuration: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.xs,
+    marginTop: spacing.xs,
+  },
+  protocolDurationActive: {
+    color: colors.accent,
+  },
+  protocolDescription: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+    marginTop: spacing.sm,
+  },
+  optionRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  optionButton: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+  },
+  optionButtonActive: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+  },
+  optionButtonText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  optionButtonTextActive: {
+    color: colors.accent,
+  },
+  stressRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  stressButton: {
+    width: 28,
+    height: 36,
+    borderRadius: radius.sm,
+    backgroundColor: colors.backgroundCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stressButtonActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  stressButtonText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  stressButtonTextActive: {
+    color: colors.background,
+    fontWeight: typography.weights.bold,
+  },
+  stressLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+  },
+  stressLabelText: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.xs,
+  },
+  // Start button
+  startButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -473,36 +873,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing["2xl"],
     borderRadius: radius.full,
     gap: spacing.sm,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xl,
   },
-  recordButtonActive: {
-    backgroundColor: colors.error,
-  },
-  recordButtonIcon: {
+  startButtonIcon: {
     color: colors.background,
     fontSize: typography.sizes.lg,
   },
-  recordButtonText: {
+  startButtonText: {
     color: colors.background,
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.semibold,
-  },
-  recordingIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: spacing.base,
-    gap: spacing.sm,
-  },
-  recordingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.error,
-  },
-  recordingTime: {
-    color: colors.error,
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.semibold,
-    fontVariant: ["tabular-nums"],
   },
   warning: {
     color: colors.warning,
@@ -518,7 +899,7 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: "center",
-    paddingVertical: spacing["4xl"],
+    paddingVertical: spacing["2xl"],
   },
   emptyIcon: {
     fontSize: 48,
@@ -535,9 +916,120 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.sm,
     textAlign: "center",
   },
-  listContent: {
-    paddingBottom: spacing["2xl"],
+  bottomSpacer: {
+    height: spacing["3xl"],
   },
+  // Recording phase styles
+  recordingPhase: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: spacing["4xl"],
+  },
+  timerContainer: {
+    alignItems: "center",
+    marginBottom: spacing["2xl"],
+  },
+  timerLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
+    marginBottom: spacing.sm,
+  },
+  timerText: {
+    color: colors.textPrimary,
+    fontSize: typography.sizes["4xl"],
+    fontWeight: typography.weights.bold,
+    fontVariant: ["tabular-nums"],
+  },
+  timerRemaining: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+    marginTop: spacing.xs,
+  },
+  progressBar: {
+    width: 200,
+    height: 6,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: 3,
+    marginTop: spacing.lg,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
+    borderRadius: 3,
+  },
+  protocolLabel: {
+    color: colors.accent,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+    marginTop: spacing.md,
+  },
+  recordingIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  recordingDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.error,
+  },
+  recordingText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
+  },
+  contextSummary: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: spacing.md,
+    marginBottom: spacing["2xl"],
+  },
+  contextItem: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+    backgroundColor: colors.backgroundCard,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  stopButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.error,
+    paddingVertical: spacing.base,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.full,
+    gap: spacing.sm,
+  },
+  stopButtonIcon: {
+    color: "white",
+    fontSize: typography.sizes.md,
+  },
+  stopButtonText: {
+    color: "white",
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+  },
+  // Processing phase
+  processingPhase: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  processingIcon: {
+    fontSize: 48,
+    marginBottom: spacing.base,
+  },
+  processingText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.md,
+  },
+  // Recording list styles
   recordCard: {
     flexDirection: "row",
     alignItems: "center",
