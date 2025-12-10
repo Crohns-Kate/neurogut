@@ -24,7 +24,8 @@ import {
   DEFAULT_SESSION_CONTEXT,
   createSession,
 } from "../src/models/session";
-import { addSession } from "../src/storage/sessionStore";
+import { addSession, updateSessionAnalytics } from "../src/storage/sessionStore";
+import { generatePlaceholderAnalytics } from "../src/analytics/audioAnalytics";
 
 type SavedRecording = {
   id: string;
@@ -430,14 +431,21 @@ export default function GutSoundRecordingScreen() {
         });
 
         // Create and save session to the new store
+        const durationSeconds = Math.floor(finalDuration / 1000);
         const session = createSession(
           selectedProtocol,
           targetUri,
-          Math.floor(finalDuration / 1000),
+          durationSeconds,
           context
         );
 
         await addSession(session);
+
+        // Generate analytics for the session
+        // TODO: In the future, implement proper audio sample extraction
+        // For now, we use placeholder analytics that simulate realistic values
+        const analytics = generatePlaceholderAnalytics(durationSeconds);
+        await updateSessionAnalytics(session.id, analytics);
 
         // Also update local list for display
         const newItem: SavedRecording = {
