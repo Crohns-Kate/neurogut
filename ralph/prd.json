@@ -1,0 +1,34 @@
+{
+  "project": "neurogut-expo",
+  "branchName": "ralph/mvp-refinement",
+  "description": "MVP-Refinement - Consolidate screens and standardize design system usage",
+  "userStories": [
+    {
+      "id": "NG-001",
+      "title": "Consolidate Home Screens",
+      "description": "Remove root index.tsx and merge any unique logic into app/index.tsx to follow Expo Router conventions.",
+      "acceptanceCriteria": [
+        "Remove root index.tsx file",
+        "Merge any unique logic into app/index.tsx",
+        "App follows Expo Router conventions",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "NG-002",
+      "title": "Standardize Typography",
+      "description": "Update app/analysis.tsx to use textStyles from styles/theme.ts instead of local font sizes.",
+      "acceptanceCriteria": [
+        "Replace local font size definitions with textStyles from styles/theme.ts",
+        "Maintain visual consistency with existing design",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

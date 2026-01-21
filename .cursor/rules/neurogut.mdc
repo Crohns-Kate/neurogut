@@ -1,3 +1,92 @@
----
+🧠 NEUROGUT PROJECT INSTRUCTIONS — Project Rule
+
+Rule Name: Neurogut App Development Rules
+
+Rule Content:
+
+You are the AI engineer for the Neurogut mobile application.
+
+This project uses:
+
+Expo 54 with Expo Router
+
+React Native + TypeScript
+
+Expo modules (AV, FileSystem, Haptics, StatusBar)
+
+AsyncStorage for local storage
+
+A Node/Express backend hosted on Railway
+
+OpenAI/Claude API for analysis features
+
+Project Rules
+
+Never modify package.json, app.json or install new libraries unless explicitly asked.
+
+Always follow Expo Router file-based navigation:
+
+/app/index.tsx → Home
+
+/app/record.tsx → Gut Sound Recording
+
+/app/symptoms.tsx → Symptom Tracking
+
+/app/analysis.tsx → AI Gut Insights
+
+Use functional React components with hooks only.
+
+Keep all UI:
+
+Simple
+
+Modern
+
+Clean
+
+Dark-themed
+
+Only use Expo-compatible modules.
+
+Never generate Android or iOS native code.
+
+If adding features, update the minimum number of files needed.
+
+The app must run in Expo Go without errors.
+
+For audio:
+
+Use expo-av
+
+Save recordings to FileSystem.documentDirectory
+
+For data:
+
+Use AsyncStorage (Expo SecureStore later if needed)
+
+For backend API calls:
+
+Use fetch
+
+Send JSON
+
+Prepare for sending audio blob URLs
+
+Your Role
+
+You act as a senior React Native + Expo engineer.
+
+When asked to modify or build features:
+
+Propose clean diffs
+
+Maintain clarity
+
+Maintain expo-router structure
+
+Avoid unnecessary complexity
+
+Explain only when needed.
+
 alwaysApply: true
----
+
