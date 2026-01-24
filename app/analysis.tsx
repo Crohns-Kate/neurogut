@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
-import { colors, typography, spacing, radius, safeArea } from "../styles/theme";
+import { colors, typography, spacing, radius, safeArea, textStyles } from "../styles/theme";
 import { PROTOCOL_CONFIG, RecordingProtocolType } from "../src/models/session";
 import {
   getStatsByProtocol,
@@ -15,6 +15,7 @@ import {
   ProtocolStats,
   StressCorrelationStats,
 } from "../src/storage/sessionStore";
+import { getActivePatient } from "../src/storage/patientStore";
 
 const RECORDINGS_DIR = `${FileSystem.documentDirectory || ""}recordings/`;
 const SYMPTOM_STORAGE_KEY = "symptomEntries";
@@ -221,12 +222,29 @@ export default function AIGutInsightsScreen() {
       symptomCount = 0;
     }
 
-    // Get session store stats
+    // Get session store stats (scoped to active patient)
+    const activePatient = await getActivePatient();
+    const patientId = activePatient?.id;
+
+    // Get global counts (not patient-specific)
     const sessionCount = await getSessionCount();
     const daysTracked = await getUniqueDaysTracked();
-    const averageMotility = await getAverageMotilityIndex();
-    const protocolData = await getStatsByProtocol();
-    const stressData = await getStressCorrelationStats();
+
+    // SECURITY: Patient-specific stats require active patient
+    let averageMotility: number | null = null;
+    let protocolData: ProtocolStats[] = [];
+    let stressData: StressCorrelationStats = {
+      lowStressSessions: 0,
+      lowStressAvgMotility: 0,
+      highStressSessions: 0,
+      highStressAvgMotility: 0,
+    };
+
+    if (patientId) {
+      averageMotility = await getAverageMotilityIndex(patientId);
+      protocolData = await getStatsByProtocol(patientId);
+      stressData = await getStressCorrelationStats(patientId);
+    }
 
     setStats({
       recordingCount,
@@ -341,13 +359,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.base,
   },
   backText: {
-    color: colors.textSecondary,
-    fontSize: typography.sizes.base,
+    ...textStyles.bodySecondary,
   },
   title: {
-    fontSize: typography.sizes["2xl"],
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+    ...textStyles.heading2,
     marginBottom: spacing.sm,
   },
   subtitle: {
@@ -367,8 +382,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   averageLabel: {
-    color: colors.textSecondary,
-    fontSize: typography.sizes.sm,
+    ...textStyles.caption,
     marginBottom: spacing.sm,
   },
   averageValueRow: {
@@ -398,9 +412,8 @@ const styles = StyleSheet.create({
   },
   // Section
   sectionTitle: {
-    color: colors.textPrimary,
+    ...textStyles.heading3,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
     marginBottom: spacing.md,
     marginTop: spacing.md,
   },
@@ -420,8 +433,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   chartSubtitle: {
-    color: colors.textMuted,
-    fontSize: typography.sizes.sm,
+    ...textStyles.caption,
     marginBottom: spacing.base,
   },
   protocolBars: {
@@ -458,7 +470,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   protocolBarCount: {
-    color: colors.textMuted,
+    ...textStyles.caption,
     fontSize: typography.sizes.xs,
     textAlign: "center",
   },
@@ -479,7 +491,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   progressText: {
-    color: colors.textMuted,
+    ...textStyles.caption,
     fontSize: typography.sizes.xs,
     textAlign: "center",
     marginTop: spacing.sm,
@@ -526,7 +538,7 @@ const styles = StyleSheet.create({
   },
   lockedBadge: {
     backgroundColor: colors.backgroundElevated,
-    color: colors.textMuted,
+    ...textStyles.caption,
     fontSize: typography.sizes.xs,
     fontWeight: typography.weights.semibold,
     paddingHorizontal: spacing.sm,
@@ -535,8 +547,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   insightDescription: {
-    color: colors.textSecondary,
-    fontSize: typography.sizes.sm,
+    ...textStyles.caption,
     lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
   },
   insightStats: {
@@ -552,7 +563,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   insightStatLabel: {
-    color: colors.textMuted,
+    ...textStyles.caption,
     fontSize: typography.sizes.xs,
     marginBottom: spacing.xs,
   },
@@ -588,8 +599,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   coachingText: {
-    color: colors.textSecondary,
-    fontSize: typography.sizes.sm,
+    ...textStyles.caption,
     lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
   },
   // Stats Grid

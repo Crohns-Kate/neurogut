@@ -19,7 +19,10 @@ import {
   SessionAnalytics,
   MotilityCategory,
   getMotilityCategory,
+  SymptomTag,
+  StateOfMind,
 } from "../models/session";
+import { getOrCreateDefaultPatient } from "./patientStore";
 
 const SESSIONS_STORAGE_KEY = "gutRecordingSessions";
 
@@ -79,8 +82,15 @@ async function saveAllSessions(sessions: GutRecordingSession[]): Promise<void> {
 
 /**
  * Add a new session
+ * Ensures patientId is always set (assigns to default if missing)
  */
 export async function addSession(session: GutRecordingSession): Promise<void> {
+  // Ensure patientId is set
+  if (!session.patientId) {
+    const defaultPatient = await getOrCreateDefaultPatient();
+    session.patientId = defaultPatient.id;
+  }
+  
   const sessions = await loadAllSessions();
   sessions.push(session);
   await saveAllSessions(sessions);
@@ -125,6 +135,32 @@ export async function updateSessionNotes(
 }
 
 /**
+ * Update session tags
+ */
+export async function updateSessionTags(
+  sessionId: string,
+  tags: SymptomTag[]
+): Promise<void> {
+  await updateSession(sessionId, { tags: tags.length > 0 ? tags : undefined });
+}
+
+/**
+ * Get sessions filtered by symptom tags
+ */
+export async function getSessionsByTags(
+  tags: SymptomTag[]
+): Promise<GutRecordingSession[]> {
+  const sessions = await loadAllSessions();
+  if (tags.length === 0) return sessions;
+
+  return sessions.filter((session) => {
+    if (!session.tags || session.tags.length === 0) return false;
+    // Session must have at least one of the requested tags
+    return tags.some((tag) => session.tags?.includes(tag));
+  });
+}
+
+/**
  * Delete a session
  */
 export async function deleteSession(sessionId: string): Promise<void> {
@@ -145,12 +181,23 @@ export async function getSession(
 
 /**
  * Get sessions sorted by date (newest first)
+ * @param patientId REQUIRED - Patient ID to filter sessions (prevents cross-patient data leak)
+ * @param limit Optional limit on number of sessions returned
+ * @throws Error if patientId is not provided
  */
 export async function getSessionsSortedByDate(
+  patientId: string,
   limit?: number
 ): Promise<GutRecordingSession[]> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required to retrieve sessions. This prevents cross-patient data leaks.");
+  }
+
   const sessions = await loadAllSessions();
-  const sorted = [...sessions].sort(
+  const filtered = sessions.filter((s) => s.patientId === patientId);
+
+  const sorted = [...filtered].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
@@ -172,19 +219,37 @@ export async function getSessionsByProtocol(
 
 /**
  * Get sessions with analytics computed
+ * @param patientId REQUIRED - Patient ID to filter sessions (prevents cross-patient data leak)
+ * @throws Error if patientId is not provided
  */
-export async function getSessionsWithAnalytics(): Promise<
-  GutRecordingSession[]
-> {
+export async function getSessionsWithAnalytics(
+  patientId: string
+): Promise<GutRecordingSession[]> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required to retrieve sessions. This prevents cross-patient data leaks.");
+  }
+
   const sessions = await loadAllSessions();
-  return sessions.filter((s) => s.analytics !== null);
+  const filtered = sessions.filter(
+    (s) => s.analytics !== null && s.patientId === patientId
+  );
+
+  return filtered;
 }
 
 /**
- * Compute average motility index across all sessions
+ * Compute average motility index across all sessions for a patient
+ * @param patientId REQUIRED - Patient ID to filter sessions
+ * @throws Error if patientId is not provided
  */
-export async function getAverageMotilityIndex(): Promise<number | null> {
-  const sessions = await getSessionsWithAnalytics();
+export async function getAverageMotilityIndex(patientId: string): Promise<number | null> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required. This prevents cross-patient data leaks.");
+  }
+
+  const sessions = await getSessionsWithAnalytics(patientId);
 
   if (sessions.length === 0) return null;
 
@@ -197,11 +262,20 @@ export async function getAverageMotilityIndex(): Promise<number | null> {
 
 /**
  * Get motility category relative to user's historical average
+ * @param motilityIndex The motility index to categorize
+ * @param patientId REQUIRED - Patient ID to filter sessions
+ * @throws Error if patientId is not provided
  */
 export async function getRelativeMotilityCategory(
-  motilityIndex: number
+  motilityIndex: number,
+  patientId: string
 ): Promise<MotilityCategory> {
-  const average = await getAverageMotilityIndex();
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required. This prevents cross-patient data leaks.");
+  }
+
+  const average = await getAverageMotilityIndex(patientId);
 
   if (average === null) {
     // No history, use absolute thresholds
@@ -216,10 +290,17 @@ export async function getRelativeMotilityCategory(
 }
 
 /**
- * Get stats per protocol type
+ * Get stats per protocol type for a patient
+ * @param patientId REQUIRED - Patient ID to filter sessions
+ * @throws Error if patientId is not provided
  */
-export async function getStatsByProtocol(): Promise<ProtocolStats[]> {
-  const sessions = await getSessionsWithAnalytics();
+export async function getStatsByProtocol(patientId: string): Promise<ProtocolStats[]> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required. This prevents cross-patient data leaks.");
+  }
+
+  const sessions = await getSessionsWithAnalytics(patientId);
   const protocols: RecordingProtocolType[] = [
     "quick_check",
     "post_meal",
@@ -260,10 +341,17 @@ export async function getStatsByProtocol(): Promise<ProtocolStats[]> {
 }
 
 /**
- * Get stress correlation stats
+ * Get stress correlation stats for a patient
+ * @param patientId REQUIRED - Patient ID to filter sessions
+ * @throws Error if patientId is not provided
  */
-export async function getStressCorrelationStats(): Promise<StressCorrelationStats> {
-  const sessions = await getSessionsWithAnalytics();
+export async function getStressCorrelationStats(patientId: string): Promise<StressCorrelationStats> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required. This prevents cross-patient data leaks.");
+  }
+
+  const sessions = await getSessionsWithAnalytics(patientId);
 
   const lowStressSessions = sessions.filter((s) => s.context.stressLevel <= 3);
   const highStressSessions = sessions.filter((s) => s.context.stressLevel >= 7);
@@ -313,6 +401,147 @@ export async function getUniqueDaysTracked(): Promise<number> {
   });
 
   return uniqueDays.size;
+}
+
+/**
+ * Daily averages for trends dashboard
+ */
+export interface DailyAverages {
+  date: string; // ISO date string (YYYY-MM-DD)
+  avgMotilityIndex: number;
+  avgEventsPerMinute: number;
+  sessionCount: number;
+}
+
+/**
+ * Get daily averages of motility index and events per minute
+ *
+ * Groups sessions by date (YYYY-MM-DD) and calculates arithmetic mean
+ * for motility index and events per minute for each day.
+ *
+ * @param patientId REQUIRED - Patient ID to filter sessions (prevents cross-patient data leak)
+ * @param tags Optional array of symptom tags to filter sessions. If provided,
+ *             only sessions containing at least one of the specified tags will be included.
+ * @returns Array of daily averages sorted by date (oldest first)
+ * @throws Error if patientId is not provided
+ */
+export async function getAveragesByDate(
+  patientId: string,
+  tags?: SymptomTag[]
+): Promise<DailyAverages[]> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required to retrieve session averages. This prevents cross-patient data leaks.");
+  }
+
+  let sessions = await getSessionsWithAnalytics(patientId);
+  
+  // Filter by tags if provided
+  if (tags && tags.length > 0) {
+    sessions = sessions.filter((session) => {
+      if (!session.tags || session.tags.length === 0) {
+        return false;
+      }
+      // Session must have at least one of the specified tags
+      return tags.some((tag) => session.tags?.includes(tag));
+    });
+  }
+  
+  if (sessions.length === 0) {
+    return [];
+  }
+
+  // Group sessions by date (YYYY-MM-DD)
+  const sessionsByDate = new Map<string, GutRecordingSession[]>();
+
+  sessions.forEach((session) => {
+    const date = new Date(session.createdAt);
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    
+    if (!sessionsByDate.has(dateKey)) {
+      sessionsByDate.set(dateKey, []);
+    }
+    sessionsByDate.get(dateKey)!.push(session);
+  });
+
+  // Calculate averages for each date
+  const dailyAverages: DailyAverages[] = [];
+
+  sessionsByDate.forEach((daySessions, dateKey) => {
+    const sessionsWithAnalytics = daySessions.filter((s) => s.analytics !== null);
+    
+    if (sessionsWithAnalytics.length === 0) {
+      return; // Skip days with no analytics
+    }
+
+    // Calculate arithmetic mean for motility index
+    const sumMotility = sessionsWithAnalytics.reduce(
+      (acc, s) => acc + (s.analytics?.motilityIndex || 0),
+      0
+    );
+    const avgMotilityIndex = sumMotility / sessionsWithAnalytics.length;
+
+    // Calculate arithmetic mean for events per minute
+    const sumEventsPerMin = sessionsWithAnalytics.reduce(
+      (acc, s) => acc + (s.analytics?.eventsPerMinute || 0),
+      0
+    );
+    const avgEventsPerMinute = sumEventsPerMin / sessionsWithAnalytics.length;
+
+    dailyAverages.push({
+      date: dateKey,
+      avgMotilityIndex: Math.round(avgMotilityIndex * 10) / 10, // Round to 1 decimal
+      avgEventsPerMinute: Math.round(avgEventsPerMinute * 10) / 10, // Round to 1 decimal
+      sessionCount: sessionsWithAnalytics.length,
+    });
+  });
+
+  // Sort by date (oldest first)
+  dailyAverages.sort((a, b) => a.date.localeCompare(b.date));
+
+  return dailyAverages;
+}
+
+/**
+ * Get sessions grouped by date with state of mind information
+ * Used for mind-body correlation visualization in trends
+ * @param patientId REQUIRED - Patient ID to filter sessions (prevents cross-patient data leak)
+ * @throws Error if patientId is not provided
+ */
+export async function getSessionsByDateWithState(
+  patientId: string
+): Promise<
+  Map<string, Array<{ stateOfMind: StateOfMind; motilityIndex: number }>>
+> {
+  // SECURITY: Require patientId to prevent cross-patient data exposure
+  if (!patientId || patientId.trim() === "") {
+    throw new Error("Patient ID is required to retrieve session data. This prevents cross-patient data leaks.");
+  }
+
+  const sessions = await getSessionsWithAnalytics(patientId);
+  const sessionsByDate = new Map<
+    string,
+    Array<{ stateOfMind: StateOfMind; motilityIndex: number }>
+  >();
+
+  sessions.forEach((session) => {
+    if (!session.analytics) return;
+
+    const date = new Date(session.createdAt);
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+    if (!sessionsByDate.has(dateKey)) {
+      sessionsByDate.set(dateKey, []);
+    }
+
+    // Handle backward compatibility: sessions without stateOfMind default to "Calm"
+    sessionsByDate.get(dateKey)!.push({
+      stateOfMind: session.context.stateOfMind || "Calm",
+      motilityIndex: session.analytics.motilityIndex,
+    });
+  });
+
+  return sessionsByDate;
 }
 
 /**

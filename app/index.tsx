@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Platform, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Platform, TouchableOpacity, ScrollView, TextInput, Alert, Modal } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -14,6 +14,14 @@ import {
   MotilityCategory,
 } from "../src/models/session";
 import { getSessionsSortedByDate } from "../src/storage/sessionStore";
+import {
+  loadAllPatients,
+  getActivePatient,
+  setActivePatientId,
+  createAndAddPatient,
+  deletePatient,
+  PatientProfile,
+} from "../src/storage/patientStore";
 
 const RECORDINGS_DIR = `${FileSystem.documentDirectory || ""}recordings/`;
 const SYMPTOM_STORAGE_KEY = "symptomEntries";
@@ -24,7 +32,7 @@ type FeatureCard = {
   icon: string;
   title: string;
   description: string;
-  route: "/record" | "/symptoms" | "/analysis";
+  route: "/record" | "/symptoms" | "/trends" | "/protocol";
   getStatus: () => string;
   accentColor?: string;
 };
@@ -39,9 +47,16 @@ const motilityColors: Record<MotilityCategory, { bg: string; text: string }> = {
 export default function HomeScreen() {
   const router = useRouter();
   const [recordingCount, setRecordingCount] = useState<number | null>(null);
+  const [lastRecordingDate, setLastRecordingDate] = useState<string | null>(null);
   const [lastSymptomDate, setLastSymptomDate] = useState<string | null>(null);
   const [recentSessions, setRecentSessions] = useState<GutRecordingSession[]>([]);
   const [sessionCount, setSessionCount] = useState<number>(0);
+  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [activePatientId, setActivePatientIdState] = useState<string | null>(null);
+  const [showPatientFilter, setShowPatientFilter] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newPatientCode, setNewPatientCode] = useState("");
+  const [newPatientName, setNewPatientName] = useState("");
 
   const loadStats = useCallback(async () => {
     // Load recording count
@@ -83,16 +98,45 @@ export default function HomeScreen() {
       setLastSymptomDate(null);
     }
 
-    // Load recent sessions and count
+    // Load recent sessions and count (filtered by active patient)
     try {
-      const sessions = await getSessionsSortedByDate(3);
+      const activePatient = await getActivePatient();
+      const patientId = activePatient?.id;
+
+      // SECURITY: Only load sessions if patient is selected
+      if (!patientId) {
+        setRecentSessions([]);
+        setSessionCount(0);
+        setLastRecordingDate(null);
+        return;
+      }
+
+      const sessions = await getSessionsSortedByDate(patientId, 3);
       setRecentSessions(sessions);
       // Get total session count for insights status
-      const allSessions = await getSessionsSortedByDate();
+      const allSessions = await getSessionsSortedByDate(patientId);
       setSessionCount(allSessions.length);
+      // Get most recent recording date
+      if (allSessions.length > 0) {
+        const mostRecent = allSessions[0];
+        setLastRecordingDate(formatRelativeDate(mostRecent.createdAt));
+      } else {
+        setLastRecordingDate(null);
+      }
     } catch {
       setRecentSessions([]);
       setSessionCount(0);
+      setLastRecordingDate(null);
+    }
+
+    // Load patients
+    try {
+      const allPatients = await loadAllPatients();
+      setPatients(allPatients);
+      const activePatient = await getActivePatient();
+      setActivePatientIdState(activePatient?.id || null);
+    } catch (error) {
+      console.error("Error loading patients:", error);
     }
   }, []);
 
@@ -132,6 +176,10 @@ export default function HomeScreen() {
   const getRecordingStatus = (): string => {
     if (recordingCount === null) return "Loading...";
     if (recordingCount === 0) return "No recordings yet";
+    if (lastRecordingDate) {
+      if (recordingCount === 1) return `1 recording • Last: ${lastRecordingDate}`;
+      return `${recordingCount} recordings • Last: ${lastRecordingDate}`;
+    }
     if (recordingCount === 1) return "1 recording saved";
     return `${recordingCount} recordings saved`;
   };
@@ -171,8 +219,16 @@ export default function HomeScreen() {
       icon: "🧠",
       title: "AI Gut Insights",
       description: "Pattern analysis and recommendations",
-      route: "/analysis",
+      route: "/trends",
       getStatus: getInsightsStatus,
+    },
+    {
+      id: "protocol",
+      icon: "📖",
+      title: "Protocol",
+      description: "Vagal Toolkit clinical guide",
+      route: "/protocol",
+      getStatus: () => "Available",
     },
   ];
 
@@ -231,10 +287,120 @@ export default function HomeScreen() {
         ))}
       </View>
 
+      {/* Patient Filter */}
+      <View style={styles.patientFilterSection}>
+        <View style={styles.patientFilterHeader}>
+          <Text style={styles.patientFilterLabel}>Patient Filter</Text>
+          <TouchableOpacity
+            style={styles.patientFilterButton}
+            onPress={() => setShowPatientFilter(!showPatientFilter)}
+          >
+            <Text style={styles.patientFilterButtonText}>
+              {activePatientId
+                ? patients.find((p) => p.id === activePatientId)?.name ?? "Unknown"
+                : "All Patients"}
+            </Text>
+            <Text style={styles.patientFilterArrow}>
+              {showPatientFilter ? "▲" : "▼"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {showPatientFilter && (
+          <View style={styles.patientFilterDropdown}>
+            <TouchableOpacity
+              style={[
+                styles.patientFilterOption,
+                !activePatientId && styles.patientFilterOptionActive,
+              ]}
+              onPress={async () => {
+                await setActivePatientId(null);
+                setActivePatientIdState(null);
+                setShowPatientFilter(false);
+                loadStats();
+              }}
+            >
+              <Text
+                style={[
+                  styles.patientFilterOptionText,
+                  !activePatientId && styles.patientFilterOptionTextActive,
+                ]}
+              >
+                All Patients
+              </Text>
+              {!activePatientId && (
+                <Text style={styles.patientFilterCheck}>✓</Text>
+              )}
+            </TouchableOpacity>
+            {patients.map((patient) => (
+              <View key={patient.id} style={styles.patientFilterOptionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.patientFilterOption,
+                    activePatientId === patient.id && styles.patientFilterOptionActive,
+                    { flex: 1 },
+                  ]}
+                  onPress={async () => {
+                    await setActivePatientId(patient.id);
+                    setActivePatientIdState(patient.id);
+                    setShowPatientFilter(false);
+                    loadStats();
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.patientFilterOptionText,
+                      activePatientId === patient.id && styles.patientFilterOptionTextActive,
+                    ]}
+                  >
+                    {patient.code} {patient.name ? `(${patient.name})` : ""}
+                  </Text>
+                  {activePatientId === patient.id && (
+                    <Text style={styles.patientFilterCheck}>✓</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.patientDeleteButton}
+                  onPress={async () => {
+                    Alert.alert(
+                      "Delete Patient",
+                      `Are you sure you want to delete ${patient.code}? This cannot be undone.`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Delete",
+                          style: "destructive",
+                          onPress: async () => {
+                            await deletePatient(patient.id);
+                            await loadStats();
+                            if (activePatientId === patient.id) {
+                              setActivePatientIdState(null);
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={styles.patientDeleteButtonText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={styles.createPatientButton}
+              onPress={() => setShowCreateModal(true)}
+            >
+              <Text style={styles.createPatientButtonText}>+ Create New Patient</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       {/* Recent Sessions */}
       {recentSessions.length > 0 && (
         <View style={styles.sessionsSection}>
-          <Text style={styles.sectionTitle}>Recent Sessions</Text>
+          <Text style={styles.sectionTitle}>
+            {activePatientId ? "Recent Sessions" : "Recent Sessions (All Patients)"}
+          </Text>
           {recentSessions.map((session) => {
             const protocol = PROTOCOL_CONFIG[session.protocolType];
             const category = session.analytics
@@ -405,6 +571,175 @@ const styles = StyleSheet.create({
   },
 
   // Sessions Section
+  patientFilterSection: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.lg,
+  },
+  patientFilterHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  patientFilterLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  patientFilterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  patientFilterButtonText: {
+    color: colors.textPrimary,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.medium,
+  },
+  patientFilterArrow: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+  },
+  patientFilterDropdown: {
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: spacing.sm,
+  },
+  patientFilterOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: spacing.base,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  patientFilterOptionActive: {
+    backgroundColor: colors.accentDim,
+  },
+  patientFilterOptionText: {
+    color: colors.textPrimary,
+    fontSize: typography.sizes.base,
+  },
+  patientFilterOptionTextActive: {
+    color: colors.accent,
+    fontWeight: typography.weights.semibold,
+  },
+  patientFilterCheck: {
+    color: colors.accent,
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.bold,
+  },
+  patientFilterEmpty: {
+    padding: spacing.base,
+    alignItems: "center",
+  },
+  patientFilterEmptyText: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+    textAlign: "center",
+  },
+  patientFilterOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  patientDeleteButton: {
+    padding: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  patientDeleteButtonText: {
+    color: colors.error,
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.bold,
+  },
+  createPatientButton: {
+    padding: spacing.base,
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.accentDim,
+  },
+  createPatientButtonText: {
+    color: colors.accent,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  modalContent: {
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    width: "100%",
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.lg,
+  },
+  modalLabel: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+    marginTop: spacing.base,
+  },
+  modalInput: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.base,
+    fontSize: typography.sizes.base,
+    color: "#000000",
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: spacing.xl,
+    gap: spacing.base,
+  },
+  modalButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.base,
+    borderRadius: radius.md,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  modalButtonCancel: {
+    backgroundColor: colors.backgroundCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalButtonCancelText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.medium,
+  },
+  modalButtonCreate: {
+    backgroundColor: colors.accent,
+  },
+  modalButtonCreateText: {
+    color: colors.background,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+  },
   sessionsSection: {
     marginTop: spacing.xl,
   },
