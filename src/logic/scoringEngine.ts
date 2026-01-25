@@ -358,6 +358,105 @@ export function getVagalReadinessCategoryColor(category: VagalReadinessCategory)
   }
 }
 
+// ============================================================================
+// HEALTH CORRELATION (Apple Health / Google Fit integration)
+// ============================================================================
+
+export interface HealthCorrelationData {
+  sleepHours: number;
+  stepCount: number;
+  timestamp: string;
+}
+
+export interface DailyInsightWithHealth {
+  vrsInsight: string;
+  healthInsight: string | null;
+  combinedInsight: string;
+  sleepImpact: "positive" | "neutral" | "negative" | "unknown";
+  activityImpact: "positive" | "neutral" | "negative" | "unknown";
+}
+
+// Sleep quality thresholds
+const GOOD_SLEEP_HOURS = 7;
+const POOR_SLEEP_HOURS = 5;
+
+// Activity thresholds
+const ACTIVE_STEPS = 8000;
+const SEDENTARY_STEPS = 3000;
+
+/**
+ * Calculate sleep impact on vagal readiness
+ */
+export function calculateSleepImpact(sleepHours: number): "positive" | "neutral" | "negative" | "unknown" {
+  if (sleepHours === 0) return "unknown";
+  if (sleepHours >= GOOD_SLEEP_HOURS) return "positive";
+  if (sleepHours >= POOR_SLEEP_HOURS) return "neutral";
+  return "negative";
+}
+
+/**
+ * Calculate activity impact on vagal readiness
+ */
+export function calculateActivityImpact(stepCount: number): "positive" | "neutral" | "negative" | "unknown" {
+  if (stepCount === 0) return "unknown";
+  if (stepCount >= ACTIVE_STEPS) return "positive";
+  if (stepCount >= SEDENTARY_STEPS) return "neutral";
+  return "negative";
+}
+
+/**
+ * Generate daily insight with health correlation
+ * Correlates sleep and activity data with VRS for comprehensive insights
+ */
+export function generateDailyInsightWithHealth(
+  score: VagalReadinessScore,
+  healthData: HealthCorrelationData | null
+): DailyInsightWithHealth {
+  const vrsInsight = generateVagalReadinessInsight(score);
+
+  if (!healthData) {
+    return {
+      vrsInsight,
+      healthInsight: null,
+      combinedInsight: vrsInsight,
+      sleepImpact: "unknown",
+      activityImpact: "unknown",
+    };
+  }
+
+  const sleepImpact = calculateSleepImpact(healthData.sleepHours);
+  const activityImpact = calculateActivityImpact(healthData.stepCount);
+
+  let healthInsight: string | null = null;
+
+  // Generate health-specific insight
+  if (sleepImpact === "negative" && score.category === "developing") {
+    healthInsight = `Poor sleep (${healthData.sleepHours.toFixed(1)}h) may be contributing to low vagal readiness. Aim for 7+ hours tonight.`;
+  } else if (sleepImpact === "negative" && score.category === "moderate") {
+    healthInsight = `Your ${healthData.sleepHours.toFixed(1)}h of sleep could be affecting your score. Better rest often improves vagal tone.`;
+  } else if (sleepImpact === "positive" && score.category === "excellent") {
+    healthInsight = `Great sleep (${healthData.sleepHours.toFixed(1)}h) is supporting your excellent vagal readiness!`;
+  } else if (activityImpact === "negative" && score.score < 50) {
+    healthInsight = `Low activity (${healthData.stepCount.toLocaleString()} steps) may impact your gut-brain connection. A short walk before recording can help.`;
+  } else if (activityImpact === "positive" && sleepImpact === "positive") {
+    healthInsight = `Your healthy habits (${healthData.sleepHours.toFixed(1)}h sleep, ${healthData.stepCount.toLocaleString()} steps) are reflected in your vagal readiness.`;
+  }
+
+  // Generate combined insight
+  let combinedInsight = vrsInsight;
+  if (healthInsight) {
+    combinedInsight = `${vrsInsight} ${healthInsight}`;
+  }
+
+  return {
+    vrsInsight,
+    healthInsight,
+    combinedInsight,
+    sleepImpact,
+    activityImpact,
+  };
+}
+
 /**
  * Generate insight message based on Vagal Readiness Score
  */

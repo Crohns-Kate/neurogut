@@ -1,0 +1,132 @@
+# NeuroGut Expo - Cursor Rules & Ralph Execution Loop
+
+## Project Overview
+NeuroGut is a React Native/Expo application for gut sound recording and vagal readiness assessment. It uses acoustic analysis to measure gut motility and correlate it with vagal tone.
+
+## Ralph Autonomous Agent Execution Loop
+
+### RALPH PROTOCOL
+Ralph is an autonomous coding agent that follows a strict execution loop for feature development.
+
+#### Execution Loop Steps:
+
+1. **READ MISSION**
+   - Parse the mission mandate from user input
+   - Identify primary objectives and constraints
+   - Note any specific file paths or component names mentioned
+
+2. **EXPLORE CODEBASE**
+   - Use Glob to find relevant files
+   - Read existing implementations to understand patterns
+   - Check ralph/prd.json for related user stories
+   - Review ralph/progress.txt for context
+
+3. **CREATE TASK LIST**
+   - Break mission into discrete, testable tasks
+   - Assign dependencies between tasks
+   - Mark tasks as pending initially
+
+4. **EXECUTE TASKS**
+   For each task:
+   - Mark task as in_progress
+   - Read necessary files
+   - Implement changes following existing patterns
+   - Verify TypeScript compiles (`npx tsc --noEmit`)
+   - Mark task as completed
+
+5. **DOCUMENT**
+   - Update ralph/prd.json with new user story
+   - Update ralph/progress.txt with implementation details
+   - Include algorithm specifications for Merryck audit
+
+6. **VERIFY**
+   - Run TypeScript check
+   - Run bundle export if requested
+   - Verify patient data isolation rules intact
+   - Confirm all acceptance criteria met
+
+7. **COMMIT**
+   - Stage relevant files only
+   - Use conventional commit format
+   - Include Co-Authored-By: Claude Opus 4.5
+
+### Data Isolation Rules (CRITICAL)
+All data access functions MUST require patientId parameter:
+- `getSessionsSortedByDate(patientId, limit?)`
+- `getSessionsWithAnalytics(patientId)`
+- `getAveragesByDate(patientId, tags?)`
+- `calculateVagalReadinessScore(session, patientId)`
+
+Failure to enforce patientId results in cross-patient data leaks.
+
+## Code Style Guidelines
+
+### TypeScript
+- Strict mode enabled
+- No `any` types
+- All props interfaces exported
+- Prefer union types over enums
+
+### React Native
+- Use functional components with hooks
+- Prefer `memo()` for pure components
+- Use `useCallback` for event handlers
+- Native driver for animations when possible
+
+### Design System
+- Import from `../styles/theme.ts`
+- Use `colors`, `typography`, `spacing`, `radius` tokens
+- Never use hardcoded hex colors
+- Follow 4px grid system
+
+### File Organization
+```
+app/           # Expo Router screens
+components/    # Reusable UI components
+src/
+  analytics/   # Audio analysis logic
+  logic/       # Business logic (scoring, insights)
+  models/      # TypeScript interfaces
+  services/    # External integrations (health, etc.)
+  storage/     # AsyncStorage data persistence
+ralph/         # Autonomous agent documentation
+styles/        # Design system (read-only)
+```
+
+## Key Algorithms
+
+### Vagal Readiness Score (VRS)
+```
+VRS = (B × 0.40) + (R × 0.30) + (I × 0.30)
+
+B = Baseline Component (current vs 7-day average)
+R = Rhythmicity Index (activity consistency)
+I = Intervention Delta (4-7-8 breathing response)
+```
+
+### Vagal Rescue Triggers
+```
+Trigger rescue when:
+- Motility Index = 0 (no gut activity)
+- VRS Score < 20 (critically low)
+```
+
+### Signal Check
+```
+Pass criteria:
+- Duration: 5 seconds
+- Decibel threshold: -50 dB (relative)
+- Continuous signal indicating skin contact
+```
+
+## Testing Commands
+```bash
+npx tsc --noEmit          # TypeScript check
+npx expo export --platform ios     # iOS bundle
+npx expo export --platform android # Android bundle
+```
+
+## Mission Execution Commands
+When user issues "AUTONOMOUS MANDATE", execute Ralph protocol immediately.
+Do not stop until mission complete or catastrophic error.
+Document all changes in ralph/progress.txt.

@@ -1014,3 +1014,152 @@ Major UX and scoring overhaul transforming the app from a simple recording tool 
 - Ghost data cleanup system identifies orphaned sessions
 - No cross-patient data exposure possible with current implementation
 ---
+
+## 2026-01-25 — NG-MASTER-INTEGRATION: Placement Guide, Rescue Protocol, Health Correlation
+
+### MISSION OVERVIEW
+Comprehensive integration adding advanced placement guidance, vagal rescue protocols, Apple Health correlation, and video tutorial placeholders for a complete vagal wellness platform.
+
+### 1. PLACEMENT GATEKEEPER (`components/PlacementGuide.tsx`)
+**Purpose**: Multi-step anatomical guide UI (non-mirrored) with LRQ focus and signal verification.
+
+**Three-Step Process**:
+1. **Find Belly Button**: User locates umbilicus as reference point
+2. **Move to LRQ**: Guide user 2-3 inches down and to their right (Lower Right Quadrant)
+3. **Signal Check**: 5-second verification of skin contact and decibel minimum
+
+**Signal Check Specifications**:
+- Duration: 5 seconds
+- Minimum Decibel Threshold: -50 dB (relative to max)
+- Pass Criteria: Consistent signal above threshold indicating skin contact
+- Retry Option: If signal fails, prompt user to reposition and retry
+
+**Visual Elements**:
+- Non-mirrored torso SVG outline
+- Quadrant overlay with LRQ highlight
+- Animated arrow from belly button to LRQ
+- Pulsing target indicator
+- Progress bar for signal check
+
+### 2. VAGAL RESCUE PROTOCOL (`components/VagalRescue.tsx`)
+**Purpose**: Emergency intervention when vagal activity is critically low.
+
+**Triggers**:
+- Motility Index = 0 (no gut activity detected)
+- VRS Score < 20 (critically low vagal readiness)
+
+**Intervention Options**:
+
+| Option | Duration | Mechanism |
+|--------|----------|-----------|
+| Warm Water + Walk | 2-3 min | Esophageal vagal stimulation + gentle movement |
+| Humming Session (Recommended) | 5 min | Direct laryngeal branch vibration stimulation |
+
+**Workflow**:
+1. Low activity detected → Rescue modal appears
+2. User selects intervention OR dismisses
+3. After intervention → Re-test option available
+4. Skip always available (no blocking)
+
+**Exported Constants**:
+- `VRS_RESCUE_THRESHOLD = 20`
+- `MOTILITY_RESCUE_THRESHOLD = 0`
+- `shouldTriggerRescue(vrsScore, motilityIndex)` — boolean check function
+
+### 3. APPLE HEALTH CORRELATION (`src/services/healthService.ts`)
+**Purpose**: Integrate sleep hours and step count with vagal readiness insights.
+
+**Data Points**:
+- Sleep Hours (last 24h)
+- Step Count (today + 7-day average)
+
+**Correlation Logic** (added to `src/logic/scoringEngine.ts`):
+
+| Sleep Category | Hours | Vagal Impact |
+|---------------|-------|--------------|
+| Good | >= 7h | Positive |
+| Moderate | 5-7h | Neutral |
+| Poor | < 5h | Negative |
+
+| Activity Category | Steps | Vagal Impact |
+|------------------|-------|--------------|
+| Active | >= 8000 | Positive |
+| Moderate | 3000-8000 | Neutral |
+| Sedentary | < 3000 | Negative |
+
+**New Scoring Engine Functions**:
+```typescript
+calculateSleepImpact(sleepHours: number): "positive" | "neutral" | "negative" | "unknown"
+calculateActivityImpact(stepCount: number): "positive" | "neutral" | "negative" | "unknown"
+generateDailyInsightWithHealth(score: VagalReadinessScore, healthData: HealthCorrelationData | null): DailyInsightWithHealth
+```
+
+**Example Insights**:
+- "Poor sleep (4.5h) may be contributing to low vagal readiness. Aim for 7+ hours tonight."
+- "Great sleep (8.2h) is supporting your excellent vagal readiness!"
+- "Low activity (1500 steps) may impact your gut-brain connection. A short walk before recording can help."
+
+**Implementation Note**: Currently uses mock data for development. Production requires:
+- iOS: react-native-health + HealthKit entitlements
+- Android: react-native-google-fit + Google Fit permissions
+
+### 4. VIDEO TUTORIAL PLACEHOLDER (`components/VideoTutorial.tsx`)
+**Purpose**: AI-generated video tutorial for phone placement onboarding.
+
+**Supported Modes**:
+1. **Video Mode**: Lightweight video player with poster image
+2. **GIF Mode**: High-quality animated GIF
+3. **Placeholder Mode**: Static illustration when no media provided
+
+**Content Focus**: "Belly Button to LRQ" movement demonstration
+
+**Features**:
+- Auto-play prevention (user-initiated)
+- Replay functionality
+- Progress tracking
+- Skip/Continue options
+- Key points summary (3 steps)
+
+### 5. DOCUMENTATION UPDATES
+
+**.cursorrules Created**:
+- Ralph Execution Loop protocol documented
+- Data isolation rules specified
+- Code style guidelines
+- Key algorithms documented
+- Mission execution commands
+
+**ralph/prd.json Updated**:
+- Added NG-MASTER-INTEGRATION user story
+- Full feature specifications for all components
+- Thresholds and algorithms documented
+- Acceptance criteria defined
+
+### 6. FILES CREATED/MODIFIED
+**New Files**:
+- `components/PlacementGuide.tsx` — LRQ anatomical guide with signal check
+- `components/VagalRescue.tsx` — Rescue protocol modal
+- `components/VideoTutorial.tsx` — Video/GIF tutorial component
+- `src/services/healthService.ts` — Apple Health integration facade
+- `.cursorrules` — Ralph execution loop documentation
+
+**Modified Files**:
+- `src/logic/scoringEngine.ts` — Added health correlation functions
+- `ralph/prd.json` — Added NG-MASTER-INTEGRATION story
+- `ralph/progress.txt` — This documentation
+
+### 7. DATA ISOLATION VERIFICATION
+**Status**: INTACT
+
+All new components follow existing patterns:
+- `PlacementGuide.tsx` — No data access (UI only)
+- `VagalRescue.tsx` — Receives scores as props, no direct data access
+- `VideoTutorial.tsx` — No data access (media playback only)
+- `healthService.ts` — Reads from external APIs, no patient data mixing
+- `scoringEngine.ts` additions — Uses existing protected functions
+
+**No changes to data access patterns** — v1.0 isolation rules remain active.
+
+### 8. BUILD VERIFICATION
+- TypeScript: `npx tsc --noEmit` — **PASS** (0 errors)
+---

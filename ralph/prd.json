@@ -397,6 +397,111 @@
       "priority": 9,
       "passes": true,
       "notes": "NG-V2-EVOLUTION complete. New scoring engine at src/logic/scoringEngine.ts. Guided check-in home at app/index.tsx with mandatory pre-session modal. Enhanced PDF export with Vagal Readiness Score, trend lines, and Knowledge Base. Patient isolation intact. Typecheck passes."
+    },
+    {
+      "id": "NG-MASTER-INTEGRATION",
+      "title": "Master Integration: Placement Guide, Rescue Protocol, Health Correlation",
+      "missionStatement": "Integrate advanced placement guidance, rescue protocols for low vagal activity, Apple Health correlation, and video tutorial placeholders to create a comprehensive vagal wellness platform.",
+      "description": "Multi-faceted enhancement adding: (1) Anatomical Guide with LRQ focus and 5-second signal check, (2) Vagal Rescue Protocol for motility=0 or VRS<20, (3) Apple Health sleep/steps correlation, (4) Video tutorial placeholder for onboarding.",
+      "features": {
+        "placementGuide": {
+          "description": "Multi-step anatomical guide UI (non-mirrored) focusing on Lower Right Quadrant",
+          "components": {
+            "stepOne": "Find belly button (umbilicus) as reference point",
+            "stepTwo": "Move 2-3 inches down and to patient's right for LRQ",
+            "stepThree": "5-second signal check verifying skin contact and decibel minimum"
+          },
+          "signalCheck": {
+            "duration": "5 seconds",
+            "minDecibelThreshold": "-50 dB (relative to max)",
+            "passCriteria": "Consistent signal above threshold indicating skin contact"
+          },
+          "file": "components/PlacementGuide.tsx"
+        },
+        "vagalRescueProtocol": {
+          "description": "Emergency intervention triggered when vagal activity is critically low",
+          "triggers": [
+            "Motility Index = 0 (no gut activity detected)",
+            "VRS Score < 20 (critically low vagal readiness)"
+          ],
+          "interventionOptions": [
+            {
+              "name": "Warm Water + Walk",
+              "duration": "2-3 minutes",
+              "mechanism": "Esophageal vagal stimulation + gentle movement activation"
+            },
+            {
+              "name": "Humming Session",
+              "duration": "5 minutes",
+              "mechanism": "Direct laryngeal branch stimulation via vibration",
+              "recommended": true
+            }
+          ],
+          "workflow": "User selects intervention → performs activity → re-tests",
+          "file": "components/VagalRescue.tsx",
+          "thresholds": {
+            "VRS_RESCUE_THRESHOLD": 20,
+            "MOTILITY_RESCUE_THRESHOLD": 0
+          }
+        },
+        "healthCorrelation": {
+          "description": "Apple Health / Google Fit integration for lifestyle-vagal correlation",
+          "dataPoints": ["Sleep Hours", "Step Count"],
+          "correlations": {
+            "poorSleep": {
+              "threshold": "< 5 hours",
+              "vagalImpact": "negative",
+              "insightTemplate": "Poor sleep ({hours}h) may be contributing to low vagal readiness"
+            },
+            "goodSleep": {
+              "threshold": ">= 7 hours",
+              "vagalImpact": "positive",
+              "insightTemplate": "Good sleep ({hours}h) supports healthy vagal tone"
+            },
+            "sedentary": {
+              "threshold": "< 3000 steps",
+              "vagalImpact": "negative",
+              "insightTemplate": "Low activity may impact gut-brain connection"
+            },
+            "active": {
+              "threshold": ">= 8000 steps",
+              "vagalImpact": "positive",
+              "insightTemplate": "Active lifestyle supports vagal health"
+            }
+          },
+          "files": [
+            "src/services/healthService.ts",
+            "src/logic/scoringEngine.ts (generateDailyInsightWithHealth)"
+          ]
+        },
+        "videoTutorial": {
+          "description": "Placeholder for AI-generated video tutorial on phone placement",
+          "content": "Belly Button to LRQ movement demonstration",
+          "formats": ["Lightweight video player", "High-quality GIF"],
+          "file": "components/VideoTutorial.tsx"
+        }
+      },
+      "constraints": [
+        "Signal check must verify actual audio signal before allowing recording",
+        "Rescue protocol must not block user indefinitely - always allow skip/dismiss",
+        "Health data must be privacy-respecting - only correlate, never store",
+        "Video component must gracefully fallback when no media provided",
+        "All patient isolation rules from v1.0 must remain active"
+      ],
+      "acceptanceCriteria": [
+        "PlacementGuide shows 3-step LRQ placement process",
+        "5-second signal check validates skin contact before recording",
+        "VagalRescue modal triggers at motility=0 or VRS<20",
+        "Rescue offers warm water/walk OR humming session options",
+        "Health correlation insight shows in daily summary",
+        "scoringEngine exports generateDailyInsightWithHealth function",
+        "VideoTutorial component supports video/GIF/placeholder modes",
+        "Patient data isolation verified intact",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "NG-MASTER-INTEGRATION complete. PlacementGuide with 3-step LRQ guidance and 5-sec signal check. VagalRescue modal for motility=0 or VRS<20 with warm water/humming options. Health correlation in scoringEngine with sleep/activity impact functions. VideoTutorial placeholder supporting video/GIF/static modes. .cursorrules with Ralph execution loop. Data isolation verified intact. TypeScript passes."
     }
   ]
 }
