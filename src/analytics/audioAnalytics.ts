@@ -20,6 +20,7 @@
  */
 
 import { SessionAnalytics } from "../models/session";
+import { MOTILITY_THRESHOLD_MULTIPLIER } from "../logic/audioProcessor";
 
 // Configuration for event detection
 const CONFIG = {
@@ -28,7 +29,8 @@ const CONFIG = {
   // Minimum gap between events to consider them separate (in windows)
   minGapWindows: 3,
   // RMS threshold multiplier (events are windows above mean + threshold * stdDev)
-  thresholdMultiplier: 1.5,
+  // Sourced from audioProcessor for mic calibration; filters room hum / table noise
+  thresholdMultiplier: MOTILITY_THRESHOLD_MULTIPLIER,
   // Minimum event duration in windows to count
   minEventWindows: 2,
   // Number of segments for the activity timeline
@@ -337,4 +339,73 @@ export function generatePlaceholderAnalytics(
  */
 export function getConfig() {
   return { ...CONFIG };
+}
+
+/**
+ * Audio visualization data for waveform rendering
+ */
+export interface AudioVisualizationData {
+  // RMS energy per window (100ms windows)
+  energyValues: number[];
+  // Detected events with time information
+  events: Array<{
+    startWindow: number;
+    endWindow: number;
+    peakEnergy: number;
+    startTimeSeconds: number;
+    endTimeSeconds: number;
+  }>;
+  // Window size in milliseconds
+  windowSizeMs: number;
+  // Sample rate used for analysis
+  sampleRate: number;
+  // Total duration in seconds
+  durationSeconds: number;
+}
+
+/**
+ * Get visualization data for audio waveform rendering
+ *
+ * This function computes the same analysis as analyzeAudioSamples() but
+ * returns the raw energy values and event data needed for visualization.
+ * Use this when you need to render a detailed waveform with event markers.
+ *
+ * @param samples - Raw audio samples (normalized to -1 to 1 range)
+ * @param durationSeconds - Total recording duration in seconds
+ * @param sampleRate - Audio sample rate (default 44100)
+ * @returns AudioVisualizationData with energy values and events
+ */
+export function getVisualizationData(
+  samples: number[],
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate
+): AudioVisualizationData {
+  // Convert window size from ms to samples
+  const windowSizeSamples = Math.floor(
+    (CONFIG.windowSizeMs / 1000) * sampleRate
+  );
+
+  // Compute windowed energy
+  const energyValues = computeWindowedEnergy(samples, windowSizeSamples);
+
+  // Detect events
+  const events = detectEvents(energyValues);
+
+  // Convert window indices to time in seconds
+  const windowDurationSeconds = CONFIG.windowSizeMs / 1000;
+  const eventsWithTime = events.map((event) => ({
+    startWindow: event.startWindow,
+    endWindow: event.endWindow,
+    peakEnergy: event.peakEnergy,
+    startTimeSeconds: event.startWindow * windowDurationSeconds,
+    endTimeSeconds: (event.endWindow + 1) * windowDurationSeconds,
+  }));
+
+  return {
+    energyValues,
+    events: eventsWithTime,
+    windowSizeMs: CONFIG.windowSizeMs,
+    sampleRate,
+    durationSeconds,
+  };
 }

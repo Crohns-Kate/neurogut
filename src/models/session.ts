@@ -52,6 +52,26 @@ export const POSTURE_OPTIONS: { value: PostureType; label: string }[] = [
   { value: "standing", label: "Standing" },
 ];
 
+// Symptom tags for session context
+export type SymptomTag =
+  | "Bloating"
+  | "Cramping"
+  | "Pain"
+  | "Post-Meal"
+  | "Fasting"
+  | "Nausea"
+  | "Stress";
+
+export const SYMPTOM_TAG_OPTIONS: { value: SymptomTag; label: string }[] = [
+  { value: "Bloating", label: "Bloating" },
+  { value: "Cramping", label: "Cramping" },
+  { value: "Pain", label: "Pain" },
+  { value: "Post-Meal", label: "Post-Meal" },
+  { value: "Fasting", label: "Fasting" },
+  { value: "Nausea", label: "Nausea" },
+  { value: "Stress", label: "Stress" },
+];
+
 // Motility category based on index
 export type MotilityCategory = "quiet" | "normal" | "active";
 
@@ -88,6 +108,27 @@ export interface SessionAnalytics {
   timelineSegments: number;
 }
 
+// State of Mind before recording
+export type StateOfMind = "Calm" | "Anxious" | "Rushed" | "Distracted";
+
+export const STATE_OF_MIND_OPTIONS: { value: StateOfMind; label: string }[] = [
+  { value: "Calm", label: "Calm" },
+  { value: "Anxious", label: "Anxious" },
+  { value: "Rushed", label: "Rushed" },
+  { value: "Distracted", label: "Distracted" },
+];
+
+// Vagal intervention types
+export type VagalIntervention = "None" | "Humming" | "Gargling" | "Cold Exposure" | "Deep Breathing";
+
+export const VAGAL_INTERVENTION_OPTIONS: { value: VagalIntervention; label: string }[] = [
+  { value: "None", label: "None" },
+  { value: "Humming", label: "Humming/Singing" },
+  { value: "Gargling", label: "Gargling" },
+  { value: "Cold Exposure", label: "Cold Exposure" },
+  { value: "Deep Breathing", label: "Deep Breathing" },
+];
+
 // Pre-recording context tags
 export interface SessionContext {
   // Time since last meal
@@ -96,6 +137,10 @@ export interface SessionContext {
   stressLevel: number;
   // Body posture during recording
   posture: PostureType;
+  // State of mind before recording
+  stateOfMind: StateOfMind;
+  // Vagal intervention/hack selected
+  intervention?: VagalIntervention;
 }
 
 // Mind-body experiment pairing (for before/after comparisons)
@@ -128,10 +173,21 @@ export interface GutRecordingSession {
   analytics: SessionAnalytics | null;
   // User notes (editable after recording)
   notes: string;
+  // Symptom tags (editable after recording, optional for backward compatibility)
+  tags?: SymptomTag[];
   // For mind-body sessions: is this a "before" or "after" recording?
   mindBodyPhase?: "before" | "after";
   // Reference to experiment pairing if part of one
   experimentPairingId?: string;
+  // Vagal breathing biofeedback data
+  vagalBreathing?: {
+    enabled: boolean;
+    startTimeSeconds?: number; // When breathing exercise started (relative to recording start)
+  };
+  // Guided intervention flag
+  guidedIntervention?: boolean;
+  // Patient profile ID (required for clinic mode)
+  patientId: string;
 }
 
 // Default context for new sessions
@@ -139,6 +195,8 @@ export const DEFAULT_SESSION_CONTEXT: SessionContext = {
   mealTiming: "3-4h",
   stressLevel: 5,
   posture: "supine",
+  stateOfMind: "Calm",
+  intervention: "None",
 };
 
 // Helper to create a new session
@@ -147,7 +205,9 @@ export function createSession(
   audioFileUri: string,
   durationSeconds: number,
   context: SessionContext,
-  notes: string = ""
+  patientId: string,
+  notes: string = "",
+  tags: SymptomTag[] = []
 ): GutRecordingSession {
   return {
     id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -158,5 +218,7 @@ export function createSession(
     context,
     analytics: null,
     notes,
+    tags: tags.length > 0 ? tags : undefined,
+    patientId,
   };
 }

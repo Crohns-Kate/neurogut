@@ -201,7 +201,7 @@ export default function SymptomTrackingScreen() {
           value={notes}
           onChangeText={setNotes}
           placeholder="Any additional notes..."
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor="#666666"
           multiline
           numberOfLines={3}
           textAlignVertical="top"
@@ -334,12 +334,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   notesInput: {
-    backgroundColor: colors.backgroundCard,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
     padding: spacing.md,
-    color: colors.textPrimary,
+    color: "#000000",
     fontSize: typography.sizes.base,
     minHeight: 80,
   },

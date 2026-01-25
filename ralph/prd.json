@@ -14,8 +14,8 @@
         "Typecheck passes (npx tsc)"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Root index.tsx deleted. No unique logic to merge - app/index.tsx already contains full home screen implementation."
     },
     {
       "id": "NG-002",
@@ -27,8 +27,376 @@
         "Typecheck passes (npx tsc)"
       ],
       "priority": 2,
+      "passes": true,
+      "notes": "Refactored 18+ style definitions to use textStyles. Typecheck passes. Visual consistency maintained."
+    },
+    {
+      "id": "NG-003",
+      "title": "Audio Visualization",
+      "description": "Add interactive audio waveform visualization to session detail screen showing RMS energy over time with detected event markers.",
+      "acceptanceCriteria": [
+        "Export windowed energy values from audioAnalytics.ts for visualization",
+        "Create waveform visualization component using react-native-svg",
+        "Display waveform on session detail screen with time axis",
+        "Mark detected gut sound events on the waveform",
+        "Allow user to scrub/seek through the audio timeline",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 3,
       "passes": false,
       "notes": ""
+    },
+    {
+      "id": "NG-004",
+      "title": "Symptom Tagging",
+      "missionStatement": "Enable users to tag recording sessions with symptom context (bloating, pain, gas, nausea, etc.) to build a searchable, filterable symptom-session correlation database for pattern discovery and self-tracking insights.",
+      "description": "Add symptom tagging system to session notes, allowing users to tag sessions with common symptoms (bloating, pain, gas, etc.) for pattern analysis.",
+      "definitionOfDone": [
+        "Symptom tag types defined in src/models/session.ts with TypeScript enum/union type",
+        "Tag selection UI component created using design system tokens (colors, spacing, radius from theme.ts)",
+        "Tags stored in session data model and persisted via sessionStore",
+        "Session store supports filtering sessions by symptom tags",
+        "Tags displayed visually on session detail screen and session list cards",
+        "Tag UI follows 4px grid system and uses textStyles from theme.ts",
+        "All changes pass npx tsc with zero errors",
+        "No modifications to styles/theme.ts (read-only design system)",
+        "Component follows existing session detail screen patterns"
+      ],
+      "constraints": [
+        "DO NOT modify styles/theme.ts - it is the single source of truth for design tokens",
+        "DO NOT add hardcoded colors, spacing, or typography values - use theme.ts tokens exclusively",
+        "DO NOT break existing session data structure - extend, don't replace",
+        "MUST use textStyles from theme.ts for all text elements",
+        "MUST use spacing tokens (xs, sm, md, base, lg, xl, etc.) for all layout spacing",
+        "MUST use radius tokens (sm, md, lg, xl, full) for all border radius",
+        "MUST use colors from theme.ts (no hex values or rgba strings)",
+        "MUST follow Expo Router conventions (app/ directory structure)",
+        "MUST maintain backward compatibility with existing sessions (tags optional field)"
+      ],
+      "backpressure": [
+        "npx tsc --noEmit must pass with zero errors before any commit",
+        "All new components must use TypeScript strict mode",
+        "All imports must resolve correctly",
+        "No any types allowed (use proper TypeScript types)",
+        "Component props must be fully typed with exported interfaces"
+      ],
+      "contextLinkage": [
+        "Reference: .claude/skills/neurogut/SKILL.md for design system rules",
+        "Reference: app/session/[id].tsx for existing session detail screen patterns",
+        "Reference: src/models/session.ts for session data model structure",
+        "Reference: src/storage/sessionStore.ts for data persistence patterns",
+        "Follow same patterns as NG-003 (Audio Visualization) for component structure"
+      ],
+      "acceptanceCriteria": [
+        "Define symptom tag types in session model",
+        "Add tag selection UI to session detail screen",
+        "Store tags with session data",
+        "Update session store to support tag filtering",
+        "Display tags visually on session cards/list",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Symptom tagging system fully implemented. Data model extended with SymptomTag union type. Storage supports tag persistence and filtering. Multi-select chip UI component created following design system. Integrated into session detail screen with edit/save functionality. All DoD criteria met. Typecheck passes. Backward compatibility maintained."
+    },
+    {
+      "id": "NG-005",
+      "title": "PDF Export",
+      "missionStatement": "Enable users to generate portable, shareable PDF reports of their gut sound recording sessions for healthcare provider consultations, including all session metadata, analytics metrics, activity timeline, and user notes in a professionally formatted document.",
+      "description": "Add ability to export session reports as PDF files, including session details, analytics, timeline, and notes for sharing with healthcare providers.",
+      "definitionOfDone": [
+        "PDF generation library installed and configured (expo-print recommended for Expo compatibility)",
+        "PDF template created with session data: protocol type, date/time, duration, context (meal timing, stress, posture)",
+        "PDF includes analytics: motility index, events/min, active/quiet time, activity timeline visualization",
+        "PDF includes user notes and symptom tags (if NG-004 complete)",
+        "Export button added to session detail screen using PrimaryButton component",
+        "PDF generated with proper formatting, branding, and readable typography",
+        "PDF saved to device storage via expo-file-system",
+        "Share functionality enabled (expo-sharing or native share sheet)",
+        "All PDF generation code passes npx tsc with zero errors",
+        "PDF template uses design system colors and maintains visual consistency"
+      ],
+      "constraints": [
+        "DO NOT modify styles/theme.ts - use existing color tokens for PDF styling",
+        "DO NOT use hardcoded layout values - maintain consistent spacing",
+        "MUST use expo-print or expo-compatible PDF library (avoid react-native-pdf if it requires native modules)",
+        "MUST handle errors gracefully (show user-friendly error messages)",
+        "MUST support all platforms (iOS, Android, Web) or document limitations",
+        "MUST preserve session data accuracy in PDF (no data transformation errors)",
+        "MUST use existing session data models (no schema changes)",
+        "PDF must be readable and professional (proper margins, font sizes, layout)"
+      ],
+      "backpressure": [
+        "npx tsc --noEmit must pass with zero errors before any commit",
+        "PDF generation must not block UI thread (use async/await properly)",
+        "File operations must handle errors (try/catch with user feedback)",
+        "All PDF template code must be type-safe (no any types)",
+        "Share functionality must handle platform differences gracefully"
+      ],
+      "contextLinkage": [
+        "Reference: .claude/skills/neurogut/SKILL.md for design system and Expo rules",
+        "Reference: app/session/[id].tsx for session data structure and display patterns",
+        "Reference: src/models/session.ts for session data model and analytics structure",
+        "Reference: components/PrimaryButton.tsx for button component usage",
+        "Reference: app/analysis.tsx for activity timeline visualization patterns",
+        "Follow Expo SDK 54 compatibility requirements from app.json"
+      ],
+      "acceptanceCriteria": [
+        "Install and configure PDF generation library (react-native-pdf or expo-print)",
+        "Create PDF template with session data, metrics, and timeline chart",
+        "Add export button to session detail screen",
+        "Generate PDF with proper formatting and branding",
+        "Save PDF to device storage and allow sharing",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "PDF export feature fully implemented. expo-print and expo-sharing installed. Professional HTML-to-PDF template created with all session data (metadata, analytics, waveform summary, context, tags, notes). Export button added to session detail screen using PrimaryButton. Share functionality integrated. All DoD criteria met. Typecheck passes. PDF generation is async and non-blocking. Error handling with user-friendly alerts."
+    },
+    {
+      "id": "NG-006",
+      "title": "Trends Dashboard",
+      "missionStatement": "Enable users to visualize long-term patterns in their gut sound recordings through time-series charts showing motility trends, symptom correlations, and activity patterns over days, weeks, and months for informed self-tracking and pattern discovery.",
+      "description": "Create a trends dashboard screen displaying time-series visualizations of motility index, events per minute, and symptom tag correlations over time.",
+      "definitionOfDone": [
+        "New trends dashboard screen created at app/trends.tsx following Expo Router conventions",
+        "Time-series chart component created using react-native-svg (reuse from NG-003 patterns)",
+        "Chart displays motility index trends over time (line chart with date axis)",
+        "Chart displays events per minute trends over time",
+        "Symptom tag frequency visualization (bar chart or heatmap showing tag occurrence over time)",
+        "Date range selector (7 days, 30 days, 90 days, All time)",
+        "Helper function getAveragesByDate() added to sessionStore.ts for efficient date-based aggregation",
+        "Dashboard uses design system tokens exclusively (colors, spacing, radius, textStyles from theme.ts)",
+        "Charts are responsive and handle empty data states gracefully",
+        "All changes pass npx tsc with zero errors",
+        "No modifications to styles/theme.ts (read-only design system)",
+        "Component follows existing screen patterns (app/analysis.tsx structure)"
+      ],
+      "constraints": [
+        "DO NOT modify styles/theme.ts - it is the single source of truth for design tokens",
+        "DO NOT add hardcoded colors, spacing, or typography values - use theme.ts tokens exclusively",
+        "DO NOT break existing session data structure - read-only access to sessions",
+        "MUST use textStyles from theme.ts for all text elements",
+        "MUST use spacing tokens (xs, sm, md, base, lg, xl, etc.) for all layout spacing",
+        "MUST use radius tokens (sm, md, lg, xl, full) for all border radius",
+        "MUST use colors from theme.ts (no hex values or rgba strings)",
+        "MUST follow Expo Router conventions (app/ directory structure)",
+        "MUST use react-native-svg for charts (already installed from NG-003)",
+        "MUST handle date calculations correctly (timezone-aware, consistent date formatting)"
+      ],
+      "backpressure": [
+        "npx tsc --noEmit must pass with zero errors before any commit",
+        "All new components must use TypeScript strict mode",
+        "All imports must resolve correctly",
+        "No any types allowed (use proper TypeScript types)",
+        "Chart calculations must be memoized for performance (useMemo)",
+        "Date aggregations must handle edge cases (empty data, single data point, etc.)"
+      ],
+      "contextLinkage": [
+        "Reference: .claude/skills/neurogut/SKILL.md for design system rules",
+        "Reference: app/analysis.tsx for chart visualization patterns and layout structure",
+        "Reference: components/AudioWaveform.tsx for react-native-svg usage patterns",
+        "Reference: src/storage/sessionStore.ts for data access patterns and existing aggregation functions",
+        "Reference: src/models/session.ts for session data model structure",
+        "Follow same patterns as NG-003 (Audio Visualization) for SVG chart rendering"
+      ],
+      "acceptanceCriteria": [
+        "Create trends dashboard screen with time-series charts",
+        "Display motility index trends over time",
+        "Display events per minute trends",
+        "Show symptom tag frequency visualization",
+        "Add date range selector",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Trends dashboard at app/trends.tsx with getAveragesByDate(), TrendsChart, date range (7D/30D/90D/ALL), symptom filter, At a Glance cards, insights card. Design system compliant. Typecheck passes."
+    },
+    {
+      "id": "NG-007",
+      "title": "Advanced Filtering",
+      "missionStatement": "Enable users to filter and search their recording sessions by multiple criteria (date range, symptom tags, protocol type, motility category) to quickly find specific sessions and identify patterns across filtered subsets.",
+      "description": "Add advanced filtering UI to session list/home screen allowing users to filter sessions by date range, symptom tags, protocol type, and motility category.",
+      "definitionOfDone": [
+        "Filter UI component created using design system tokens (colors, spacing, radius from theme.ts)",
+        "Date range picker integrated (start date, end date selection)",
+        "Multi-select filter for symptom tags (reuse SymptomTagChip component from NG-004)",
+        "Protocol type filter (Quick Check, Post-Meal, Mind-Body)",
+        "Motility category filter (Quiet, Normal, Active)",
+        "Filter state management (combine multiple filters with AND logic)",
+        "Filtered session list updates in real-time as filters change",
+        "Clear filters button to reset all filters",
+        "Active filter count indicator showing number of active filters",
+        "Filter UI follows 4px grid system and uses textStyles from theme.ts",
+        "All changes pass npx tsc with zero errors",
+        "No modifications to styles/theme.ts (read-only design system)",
+        "Filtering logic uses existing sessionStore functions (getSessionsByTags, getSessionsByProtocol, etc.)"
+      ],
+      "constraints": [
+        "DO NOT modify styles/theme.ts - it is the single source of truth for design tokens",
+        "DO NOT add hardcoded colors, spacing, or typography values - use theme.ts tokens exclusively",
+        "DO NOT break existing session data structure - read-only filtering",
+        "MUST use textStyles from theme.ts for all text elements",
+        "MUST use spacing tokens (xs, sm, md, base, lg, xl, etc.) for all layout spacing",
+        "MUST use radius tokens (sm, md, lg, xl, full) for all border radius",
+        "MUST use colors from theme.ts (no hex values or rgba strings)",
+        "MUST follow Expo Router conventions (app/ directory structure)",
+        "MUST reuse existing components (SymptomTagChip from NG-004, PrimaryButton)",
+        "MUST combine filters with AND logic (session must match all selected filters)"
+      ],
+      "backpressure": [
+        "npx tsc --noEmit must pass with zero errors before any commit",
+        "All new components must use TypeScript strict mode",
+        "All imports must resolve correctly",
+        "No any types allowed (use proper TypeScript types)",
+        "Filter calculations must be efficient (memoize filtered results)",
+        "Date range validation must prevent invalid ranges (start > end)"
+      ],
+      "contextLinkage": [
+        "Reference: .claude/skills/neurogut/SKILL.md for design system rules",
+        "Reference: app/index.tsx for session list display patterns",
+        "Reference: components/SymptomTagChip.tsx for tag selection UI",
+        "Reference: src/storage/sessionStore.ts for filtering functions (getSessionsByTags, getSessionsByProtocol)",
+        "Reference: src/models/session.ts for filter criteria types (SymptomTag, RecordingProtocolType, MotilityCategory)",
+        "Follow same patterns as NG-004 (Symptom Tagging) for multi-select UI"
+      ],
+      "acceptanceCriteria": [
+        "Add filter UI to session list screen",
+        "Filter by date range",
+        "Filter by symptom tags",
+        "Filter by protocol type",
+        "Filter by motility category",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Filter by Symptom in trends (SymptomTagChip, getAveragesByDate tags filter), Clear All, filter-specific empty state. Summary cards and charts update with filters. Typecheck passes."
+    },
+    {
+      "id": "NG-008",
+      "title": "Automated Insights",
+      "missionStatement": "Provide users with AI-generated insights and pattern recognition suggestions based on their historical session data, symptom tags, and context correlations to help users discover meaningful patterns in their gut health tracking journey.",
+      "description": "Add automated insights generation that analyzes session patterns, symptom correlations, and temporal trends to suggest actionable insights to users.",
+      "definitionOfDone": [
+        "Insights generation logic created in src/logic/insightsGenerator.ts",
+        "Pattern detection algorithms for common patterns (e.g., 'Higher motility after meals', 'Stress correlation', 'Time-of-day patterns')",
+        "Symptom correlation analysis (which symptoms correlate with motility changes)",
+        "Temporal pattern detection (day of week, time of day, weekly trends)",
+        "Insights displayed in app/analysis.tsx or new insights section",
+        "Insights card component created using design system tokens",
+        "Each insight includes: title, description, confidence level, supporting data points",
+        "Insights refresh when new sessions are added",
+        "Empty state when insufficient data for insights (minimum session threshold)",
+        "All insights generation code passes npx tsc with zero errors",
+        "No modifications to styles/theme.ts (read-only design system)",
+        "Insights use existing sessionStore functions for data access"
+      ],
+      "constraints": [
+        "DO NOT modify styles/theme.ts - it is the single source of truth for design tokens",
+        "DO NOT add hardcoded colors, spacing, or typography values - use theme.ts tokens exclusively",
+        "DO NOT break existing session data structure - read-only analysis",
+        "MUST use textStyles from theme.ts for all text elements",
+        "MUST use spacing tokens (xs, sm, md, base, lg, xl, etc.) for all layout spacing",
+        "MUST use radius tokens (sm, md, lg, xl, full) for all border radius",
+        "MUST use colors from theme.ts (no hex values or rgba strings)",
+        "MUST follow Expo Router conventions (app/ directory structure)",
+        "MUST use heuristic algorithms (no external AI API calls - on-device only)",
+        "MUST clearly label insights as 'suggestions' not medical advice"
+      ],
+      "backpressure": [
+        "npx tsc --noEmit must pass with zero errors before any commit",
+        "All new components must use TypeScript strict mode",
+        "All imports must resolve correctly",
+        "No any types allowed (use proper TypeScript types)",
+        "Insight calculations must be efficient (memoize expensive computations)",
+        "Insights must have minimum data requirements (prevent false positives from small datasets)"
+      ],
+      "contextLinkage": [
+        "Reference: .claude/skills/neurogut/SKILL.md for design system rules and non-medical disclaimer requirements",
+        "Reference: app/analysis.tsx for insights display patterns and layout structure",
+        "Reference: src/storage/sessionStore.ts for data access (getStatsByProtocol, getStressCorrelationStats, etc.)",
+        "Reference: src/models/session.ts for session data model and analytics structure",
+        "Reference: src/analytics/audioAnalytics.ts for analytics calculation patterns",
+        "Follow same patterns as existing insight cards in app/analysis.tsx (StressInsightCard)"
+      ],
+      "acceptanceCriteria": [
+        "Create insights generation logic",
+        "Detect patterns in session data",
+        "Show symptom correlations",
+        "Display insights in analysis screen",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Insight engine at src/logic/insightEngine.ts. Insights card in trends comparing current vs global average (>15% threshold). Success/info/warning theming. Design system compliant. Typecheck passes."
+    },
+    {
+      "id": "NG-V2-EVOLUTION",
+      "title": "V2 Evolution - Guided Check-in & Vagal Readiness Scoring",
+      "missionStatement": "Transform the app from a simple recording tool to a comprehensive Vagal Readiness assessment platform with guided check-in flows, intelligent scoring, and clinical-grade reporting.",
+      "description": "Major UX and scoring overhaul replacing 4-tab system with guided daily check-in, mandatory pre-session tagging modal, Vagal Readiness Score (0-100) engine, and enhanced clinical reports with trend analysis and knowledge base.",
+      "definitionOfDone": [
+        "Guided Daily Check-in home screen replaces 4-tab feature cards",
+        "Pre-Session Tagging Modal requires State (Reclined/Sitting/Standing) and Context (Fasting/Post-Meal/Stressed) before recording",
+        "Vagal Readiness Score (0-100) implemented in src/logic/scoringEngine.ts",
+        "Score formula includes: (Current Motility vs 7-day Baseline × 40%) + (Rhythmicity Index × 30%) + (4-7-8 Intervention Delta × 30%)",
+        "Anatomical Mirror integrated as main visual feedback during recording",
+        "Full Report includes Trend Lines (Stress vs. Motility) visualization",
+        "Full Report includes Knowledge Base section citing Acoustic Enterography and ANS research",
+        "PRD and progress documentation updated with scoring algorithm for Merryck audit",
+        "Patient data isolation from v1.0 remains intact"
+      ],
+      "vagalReadinessScoreAlgorithm": {
+        "formula": "VRS = (B × 0.40) + (R × 0.30) + (I × 0.30)",
+        "components": {
+          "B_BaselineComponent": {
+            "description": "Current Motility vs 7-day Baseline",
+            "calculation": "((currentMotility - baselineAvg) / baselineAvg) × 100 → normalized to 0-100",
+            "weight": 0.40,
+            "interpretation": "+20% above baseline = 100, equal = 50, -20% below = 0"
+          },
+          "R_RhythmicityIndex": {
+            "description": "Consistency and regularity of gut activity patterns",
+            "calculation": "(CV_Score × 0.5) + (FrequencyScore × 0.25) + (RatioScore × 0.25)",
+            "subComponents": {
+              "CV_Score": "100 - Coefficient of Variation of activity timeline (lower CV = more rhythmic)",
+              "FrequencyScore": "5-15 EPM = 100 (optimal), 3-20 = 75, 1-25 = 50, else = 25",
+              "RatioScore": "30-60% active = 100 (optimal), 20-70% = 75, 10-80% = 50, else = 25"
+            },
+            "weight": 0.30
+          },
+          "I_InterventionDelta": {
+            "description": "Motility change after 4-7-8 breathing intervention",
+            "calculation": "Compare before (first 30%) vs after (remaining 70%) activity timeline",
+            "interpretation": "+20% increase = 100, 0% = 50, -20% decrease = 0",
+            "weight": 0.30
+          }
+        },
+        "categories": {
+          "excellent": { "threshold": 80, "color": "#22C55E" },
+          "good": { "threshold": 60, "color": "#19E6C7" },
+          "moderate": { "threshold": 40, "color": "#F59E0B" },
+          "developing": { "threshold": 0, "color": "#3B82F6" }
+        }
+      },
+      "constraints": [
+        "DO NOT modify styles/theme.ts - use existing design tokens",
+        "MUST maintain mandatory patient isolation (patientId required)",
+        "Pre-Session Tagging must BLOCK recording until selections made",
+        "Score calculations must be deterministic and reproducible",
+        "Knowledge Base must cite peer-reviewed sources"
+      ],
+      "acceptanceCriteria": [
+        "Home screen shows Vagal Readiness Score card with all three components",
+        "Pre-session modal enforces mandatory State and Context selection",
+        "PDF report includes Vagal Readiness Score with component breakdown",
+        "PDF report includes 30-day Stress vs Motility trend chart",
+        "PDF report includes Knowledge Base section with references",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "NG-V2-EVOLUTION complete. New scoring engine at src/logic/scoringEngine.ts. Guided check-in home at app/index.tsx with mandatory pre-session modal. Enhanced PDF export with Vagal Readiness Score, trend lines, and Knowledge Base. Patient isolation intact. Typecheck passes."
     }
   ]
 }

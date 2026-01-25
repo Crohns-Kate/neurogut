@@ -9,7 +9,7 @@ import {
   TextInput,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { colors, typography, spacing, radius, safeArea } from "../../styles/theme";
+import { colors, typography, spacing, radius, safeArea, textStyles } from "../../styles/theme";
 import {
   GutRecordingSession,
   PROTOCOL_CONFIG,
@@ -18,8 +18,19 @@ import {
   getMotilityCategory,
   getMotilityCategoryLabel,
   MotilityCategory,
+  SymptomTag,
+  SYMPTOM_TAG_OPTIONS,
 } from "../../src/models/session";
-import { getSession, updateSessionNotes } from "../../src/storage/sessionStore";
+import {
+  getSession,
+  updateSessionNotes,
+  updateSessionTags,
+} from "../../src/storage/sessionStore";
+import SymptomTagChip from "../../components/SymptomTagChip";
+import PrimaryButton from "../../components/PrimaryButton";
+import { exportSessionPDF } from "../../src/logic/exportHelper";
+import { analyzeBiofeedback, BiofeedbackResult } from "../../src/logic/insightEngine";
+import { Alert } from "react-native";
 
 // Motility badge component
 function MotilityBadge({
@@ -125,6 +136,8 @@ export default function SessionDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<SymptomTag[]>([]);
+  const [isEditingTags, setIsEditingTags] = useState(false);
 
   useEffect(() => {
     loadSession();
@@ -155,6 +168,41 @@ export default function SessionDetailScreen() {
       setIsEditingNotes(false);
     } catch (err) {
       console.error("Error saving notes:", err);
+    }
+  };
+
+  const handleTagToggle = (tag: SymptomTag) => {
+    if (isEditingTags) {
+      setSelectedTags((prev) =>
+        prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+      );
+    }
+  };
+
+  const handleSaveTags = async () => {
+    if (!session) return;
+
+    try {
+      await updateSessionTags(session.id, selectedTags);
+      setSession({ ...session, tags: selectedTags.length > 0 ? selectedTags : undefined });
+      setIsEditingTags(false);
+    } catch (err) {
+      console.error("Error saving tags:", err);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!session) return;
+
+    try {
+      await exportSessionPDF(session, true);
+    } catch (error) {
+      Alert.alert(
+        "Export Failed",
+        "Unable to generate PDF report. Please try again.",
+        [{ text: "OK" }]
+      );
+      console.error("Error exporting PDF:", error);
     }
   };
 
@@ -216,15 +264,30 @@ export default function SessionDetailScreen() {
   const motilityCategory = analytics
     ? getMotilityCategory(analytics.motilityIndex)
     : "normal";
+  
+  // Calculate biofeedback result if vagal breathing was used
+  const biofeedbackResult = session.vagalBreathing?.enabled
+    ? analyzeBiofeedback(session)
+    : null;
 
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
     >
-      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        <PrimaryButton
+          title="Export PDF"
+          onPress={handleExportPDF}
+          variant="primary"
+          size="sm"
+          fullWidth={false}
+          style={styles.exportButton}
+        />
+      </View>
 
       {/* Header */}
       <View style={styles.header}>
@@ -283,13 +346,120 @@ export default function SessionDetailScreen() {
         <ActivityTimeline data={analytics.activityTimeline} />
       )}
 
+      {/* Biofeedback Success Card */}
+      {biofeedbackResult && (
+        <View
+          style={[
+            styles.biofeedbackCard,
+            biofeedbackResult.success
+              ? styles.biofeedbackCardSuccess
+              : styles.biofeedbackCardInfo,
+          ]}
+        >
+          <View style={styles.biofeedbackHeader}>
+            <Text
+              style={[
+                styles.biofeedbackIcon,
+                biofeedbackResult.success
+                  ? styles.biofeedbackIconSuccess
+                  : styles.biofeedbackIconInfo,
+              ]}
+            >
+              {biofeedbackResult.success ? "✓" : "ℹ"}
+            </Text>
+            <Text
+              style={[
+                styles.biofeedbackTitle,
+                biofeedbackResult.success
+                  ? styles.biofeedbackTitleSuccess
+                  : styles.biofeedbackTitleInfo,
+              ]}
+            >
+              {biofeedbackResult.success
+                ? "Biofeedback Success"
+                : "Biofeedback Results"}
+            </Text>
+          </View>
+          <Text
+            style={[
+              styles.biofeedbackMessage,
+              biofeedbackResult.success
+                ? styles.biofeedbackMessageSuccess
+                : styles.biofeedbackMessageInfo,
+            ]}
+          >
+            {biofeedbackResult.message}
+          </Text>
+        </View>
+      )}
+
       {/* Recording Context */}
       <Text style={styles.sectionTitle}>Recording Context</Text>
       <View style={styles.contextContainer}>
         <ContextTag label="Since last meal" value={mealTiming?.label || "Unknown"} />
         <ContextTag label="Stress level" value={`${session.context.stressLevel}/10`} />
         <ContextTag label="Posture" value={posture?.label || "Unknown"} />
+        <ContextTag
+          label="State of Mind"
+          value={session.context.stateOfMind || "Calm"}
+        />
+        {session.context.intervention && session.context.intervention !== "None" && (
+          <ContextTag label="Intervention" value={session.context.intervention} />
+        )}
       </View>
+
+      {/* Symptom Tags Section */}
+      <Text style={styles.sectionTitle}>Symptom Tags</Text>
+      {isEditingTags ? (
+        <View style={styles.tagsEditContainer}>
+          <View style={styles.tagsChipContainer}>
+            {SYMPTOM_TAG_OPTIONS.map((option) => (
+              <SymptomTagChip
+                key={option.value}
+                tag={option.value}
+                selected={selectedTags.includes(option.value)}
+                onPress={handleTagToggle}
+              />
+            ))}
+          </View>
+          <View style={styles.tagsButtonRow}>
+            <TouchableOpacity
+              style={styles.tagsCancelButton}
+              onPress={() => {
+                setSelectedTags(session.tags || []);
+                setIsEditingTags(false);
+              }}
+            >
+              <Text style={styles.tagsCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.tagsSaveButton}
+              onPress={handleSaveTags}
+            >
+              <Text style={styles.tagsSaveText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.tagsDisplayContainer}
+          onPress={() => setIsEditingTags(true)}
+        >
+          {session.tags && session.tags.length > 0 ? (
+            <View style={styles.tagsChipContainer}>
+              {session.tags.map((tag) => (
+                <View key={tag} style={styles.tagDisplayChip}>
+                  <Text style={styles.tagDisplayText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.tagsPlaceholder}>
+              Tap to add symptom tags...
+            </Text>
+          )}
+        </TouchableOpacity>
+      )}
 
       {/* Notes Section */}
       <Text style={styles.sectionTitle}>Notes</Text>
@@ -300,7 +470,7 @@ export default function SessionDetailScreen() {
             value={notes}
             onChangeText={setNotes}
             placeholder="Add notes about symptoms, food, or how you felt..."
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor="#666666"
             multiline
             numberOfLines={4}
             textAlignVertical="top"
@@ -361,12 +531,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: safeArea.horizontal,
     paddingTop: Platform.OS === "ios" ? safeArea.top + spacing.lg : safeArea.top,
   },
-  backButton: {
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: spacing.base,
+  },
+  backButton: {
+    flex: 1,
   },
   backText: {
     color: colors.textSecondary,
     fontSize: typography.sizes.base,
+  },
+  exportButton: {
+    marginLeft: spacing.md,
   },
   loadingContainer: {
     flex: 1,
@@ -412,8 +591,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   timeText: {
-    color: colors.textSecondary,
-    fontSize: typography.sizes.base,
+    ...textStyles.caption,
+    color: colors.textMuted,
   },
   // Motility Card
   motilityCard: {
@@ -426,8 +605,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   motilityTitle: {
-    color: colors.textSecondary,
-    fontSize: typography.sizes.sm,
+    ...textStyles.caption,
     marginBottom: spacing.sm,
   },
   motilityBadgeContainer: {
@@ -476,8 +654,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   metricLabel: {
-    color: colors.textMuted,
-    fontSize: typography.sizes.xs,
+    ...textStyles.caption,
     marginBottom: spacing.xs,
   },
   metricValueRow: {
@@ -557,8 +734,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   contextLabel: {
-    color: colors.textMuted,
-    fontSize: typography.sizes.xs,
+    ...textStyles.caption,
     marginBottom: spacing.xs,
   },
   contextValue: {
@@ -571,12 +747,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   notesInput: {
-    backgroundColor: colors.backgroundCard,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
     padding: spacing.md,
-    color: colors.textPrimary,
+    color: "#000000",
     fontSize: typography.sizes.base,
     minHeight: 100,
   },
@@ -624,6 +800,61 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.base,
     fontStyle: "italic",
   },
+  // Biofeedback Card
+  biofeedbackCard: {
+    flexDirection: "column",
+    padding: spacing.base,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+    gap: spacing.xs,
+  },
+  biofeedbackCardSuccess: {
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    borderColor: colors.success,
+  },
+  biofeedbackCardInfo: {
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
+    borderColor: colors.info,
+  },
+  biofeedbackHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  biofeedbackIcon: {
+    fontSize: typography.sizes.lg,
+  },
+  biofeedbackIconSuccess: {
+    color: colors.success,
+  },
+  biofeedbackIconInfo: {
+    color: colors.info,
+  },
+  biofeedbackTitle: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    marginBottom: spacing.xs,
+    flex: 1,
+  },
+  biofeedbackTitleSuccess: {
+    color: colors.success,
+  },
+  biofeedbackTitleInfo: {
+    color: colors.info,
+  },
+  biofeedbackMessage: {
+    fontSize: typography.sizes.sm,
+    lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
+    flex: 1,
+  },
+  biofeedbackMessageSuccess: {
+    color: colors.textPrimary,
+  },
+  biofeedbackMessageInfo: {
+    color: colors.textPrimary,
+  },
   // Coaching Card
   coachingCard: {
     flexDirection: "row",
@@ -644,5 +875,66 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: spacing["3xl"],
+  },
+  // Symptom Tags
+  tagsEditContainer: {
+    marginBottom: spacing.xl,
+  },
+  tagsChipContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: spacing.md,
+  },
+  tagsButtonRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm,
+  },
+  tagsCancelButton: {
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+  },
+  tagsCancelText: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+  },
+  tagsSaveButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  tagsSaveText: {
+    color: colors.background,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold,
+  },
+  tagsDisplayContainer: {
+    backgroundColor: colors.backgroundCard,
+    padding: spacing.base,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.xl,
+    minHeight: 60,
+  },
+  tagDisplayChip: {
+    backgroundColor: colors.accentDim,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  tagDisplayText: {
+    color: colors.accent,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  tagsPlaceholder: {
+    ...textStyles.caption,
+    fontStyle: "italic",
   },
 });
