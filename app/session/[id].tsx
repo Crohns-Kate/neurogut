@@ -30,6 +30,14 @@ import SymptomTagChip from "../../components/SymptomTagChip";
 import PrimaryButton from "../../components/PrimaryButton";
 import { exportSessionPDF } from "../../src/logic/exportHelper";
 import { analyzeBiofeedback, BiofeedbackResult } from "../../src/logic/insightEngine";
+import {
+  calculateVagalReadinessScore,
+  VagalReadinessScore,
+  getVagalReadinessCategoryLabel,
+  getVagalReadinessCategoryColor,
+  generateVagalReadinessInsight,
+} from "../../src/logic/scoringEngine";
+import { getActivePatientId } from "../../src/storage/patientStore";
 import { Alert } from "react-native";
 
 // Motility badge component
@@ -138,10 +146,15 @@ export default function SessionDetailScreen() {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [selectedTags, setSelectedTags] = useState<SymptomTag[]>([]);
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const [vagalScore, setVagalScore] = useState<VagalReadinessScore | null>(null);
 
   useEffect(() => {
     loadSession();
   }, [id]);
+
+  useEffect(() => {
+    loadVagalScore();
+  }, [session]);
 
   const loadSession = async () => {
     if (!id) return;
@@ -156,6 +169,20 @@ export default function SessionDetailScreen() {
       console.error("Error loading session:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadVagalScore = async () => {
+    if (!session || !session.analytics) return;
+
+    try {
+      const patientId = await getActivePatientId();
+      if (patientId) {
+        const score = await calculateVagalReadinessScore(session, patientId);
+        setVagalScore(score);
+      }
+    } catch (err) {
+      console.error("Error loading vagal score:", err);
     }
   };
 
@@ -297,6 +324,38 @@ export default function SessionDetailScreen() {
         <Text style={styles.dateText}>{formatDate(session.createdAt)}</Text>
         <Text style={styles.timeText}>{formatTime(session.createdAt)}</Text>
       </View>
+
+      {/* Vagal Readiness Score - PRIMARY DISPLAY */}
+      {vagalScore && (
+        <View style={[styles.vagalScoreCard, { borderColor: getVagalReadinessCategoryColor(vagalScore.category) }]}>
+          <Text style={styles.vagalScoreLabel}>Vagal Readiness Score</Text>
+          <View style={styles.vagalScoreRow}>
+            <Text style={[styles.vagalScoreValue, { color: getVagalReadinessCategoryColor(vagalScore.category) }]}>
+              {vagalScore.score}
+            </Text>
+            <View style={[styles.vagalCategoryBadge, { backgroundColor: getVagalReadinessCategoryColor(vagalScore.category) + '20' }]}>
+              <Text style={[styles.vagalCategoryText, { color: getVagalReadinessCategoryColor(vagalScore.category) }]}>
+                {getVagalReadinessCategoryLabel(vagalScore.category)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.vagalComponentsRow}>
+            <View style={styles.vagalComponent}>
+              <Text style={styles.vagalComponentLabel}>Baseline</Text>
+              <Text style={styles.vagalComponentValue}>{vagalScore.components.baselineComponent}</Text>
+            </View>
+            <View style={styles.vagalComponent}>
+              <Text style={styles.vagalComponentLabel}>Rhythm</Text>
+              <Text style={styles.vagalComponentValue}>{vagalScore.components.rhythmicityComponent}</Text>
+            </View>
+            <View style={styles.vagalComponent}>
+              <Text style={styles.vagalComponentLabel}>4-7-8 Delta</Text>
+              <Text style={styles.vagalComponentValue}>{vagalScore.components.interventionComponent}</Text>
+            </View>
+          </View>
+          <Text style={styles.vagalInsight}>{generateVagalReadinessInsight(vagalScore)}</Text>
+        </View>
+      )}
 
       {/* Motility Score */}
       {analytics && (
@@ -935,6 +994,71 @@ const styles = StyleSheet.create({
   },
   tagsPlaceholder: {
     ...textStyles.caption,
+    fontStyle: "italic",
+  },
+  // Vagal Readiness Score styles
+  vagalScoreCard: {
+    backgroundColor: colors.backgroundCard,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    marginBottom: spacing.xl,
+    alignItems: "center",
+  },
+  vagalScoreLabel: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+    marginBottom: spacing.sm,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  vagalScoreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginBottom: spacing.base,
+  },
+  vagalScoreValue: {
+    fontSize: 56,
+    fontWeight: typography.weights.bold,
+  },
+  vagalCategoryBadge: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  vagalCategoryText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold,
+  },
+  vagalComponentsRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    marginBottom: spacing.base,
+    paddingTop: spacing.base,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  vagalComponent: {
+    alignItems: "center",
+  },
+  vagalComponentLabel: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.xs,
+    marginBottom: spacing.xs,
+  },
+  vagalComponentValue: {
+    color: colors.textPrimary,
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.semibold,
+  },
+  vagalInsight: {
+    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    textAlign: "center",
+    lineHeight: typography.sizes.sm * typography.lineHeights.relaxed,
     fontStyle: "italic",
   },
 });

@@ -1701,10 +1701,10 @@ export default function GutSoundRecordingScreen() {
 
       {/* Patient Selection Modal */}
       {showPatientModal && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Patient</Text>
-            
+        <View style={[styles.modalOverlay, { zIndex: 9999, opacity: 1 }]}>
+          <View style={[styles.modalContent, { backgroundColor: '#FFFFFF', opacity: 1, zIndex: 9999 }]}>
+            <Text style={[styles.modalTitle, { color: '#000000', opacity: 1 }]}>Select Patient</Text>
+
             {/* Existing Patients */}
             <ScrollView style={styles.patientList}>
               {patients.map((patient) => (
@@ -1712,6 +1712,7 @@ export default function GutSoundRecordingScreen() {
                   key={patient.id}
                   style={[
                     styles.patientItem,
+                    { backgroundColor: '#F5F5F5' },
                     activePatientId === patient.id && styles.patientItemActive,
                   ]}
                   onPress={() => handleSelectPatient(patient.id)}
@@ -1719,13 +1720,14 @@ export default function GutSoundRecordingScreen() {
                   <Text
                     style={[
                       styles.patientItemName,
+                      { color: '#000000', opacity: 1 },
                       activePatientId === patient.id && styles.patientItemNameActive,
                     ]}
                   >
                     {patient.name}
                   </Text>
                   {activePatientId === patient.id && (
-                    <Text style={styles.patientItemCheck}>✓</Text>
+                    <Text style={[styles.patientItemCheck, { color: '#19E6C7' }]}>✓</Text>
                   )}
                 </TouchableOpacity>
               ))}
@@ -1733,20 +1735,22 @@ export default function GutSoundRecordingScreen() {
 
             {/* Create New Patient */}
             <View style={styles.createPatientSection}>
-              <Text style={styles.createPatientLabel}>Create New Patient</Text>
+              <Text style={[styles.createPatientLabel, { color: '#333333', opacity: 1 }]}>Create New Patient</Text>
               <TextInput
-                style={styles.createPatientInput}
+                style={[styles.createPatientInput, { color: '#000000', backgroundColor: '#FFFFFF', opacity: 1 }]}
                 placeholder="Patient Code * (e.g., GC-101)"
                 value={newPatientCode}
                 onChangeText={setNewPatientCode}
                 placeholderTextColor="#666666"
+                keyboardAppearance="light"
               />
               <TextInput
-                style={[styles.createPatientInput, { marginTop: spacing.sm }]}
+                style={[styles.createPatientInput, { marginTop: spacing.sm, color: '#000000', backgroundColor: '#FFFFFF', opacity: 1 }]}
                 placeholder="Full Name (optional)"
                 value={newPatientName}
                 onChangeText={setNewPatientName}
                 placeholderTextColor="#666666"
+                keyboardAppearance="light"
               />
               <TouchableOpacity
                 style={styles.createPatientButton}
@@ -1764,7 +1768,7 @@ export default function GutSoundRecordingScreen() {
                 setNewPatientName("");
               }}
             >
-              <Text style={styles.modalCloseButtonText}>Close</Text>
+              <Text style={[styles.modalCloseButtonText, { color: '#333333', opacity: 1 }]}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
