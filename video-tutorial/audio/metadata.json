@@ -1,0 +1,31 @@
+{
+  "voice": "Charlotte (Australian)",
+  "segments": [
+    {
+      "id": "intro",
+      "text": "Let's learn how to position your phone for accurate gut sound recording.",
+      "duration": 4000
+    },
+    {
+      "id": "step1",
+      "text": "First, find your belly button. This is your starting reference point.",
+      "duration": 4000
+    },
+    {
+      "id": "step2",
+      "text": "Now, move your phone about two to three inches down, and to your right. This is the Lower Right Quadrant, where gut sounds are clearest.",
+      "duration": 7000
+    },
+    {
+      "id": "step3",
+      "text": "Press the phone firmly against your skin. Use your palm to apply steady, gentle pressure. Make sure the microphone makes full contact.",
+      "duration": 7000
+    },
+    {
+      "id": "outro",
+      "text": "Perfect! Hold this position during your recording session. Stay still and relaxed for the best results.",
+      "duration": 5000
+    }
+  ],
+  "totalDuration": 27000
+}

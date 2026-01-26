@@ -574,7 +574,7 @@ async function generateHTMLTemplate(session: GutRecordingSession): Promise<strin
     <div class="vagal-score-card">
       <div class="vagal-score-header">
         <span style="font-size: 14px; font-weight: 600; color: #666; text-transform: uppercase;">Overall Score</span>
-        <span style="background: ${getVagalReadinessCategoryColor(vagalScore.category)}20; color: ${getVagalReadinessCategoryColor(vagalScore.category)}; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${getVagalReadinessCategoryLabel(vagalScore.category)}</span>
+        <span style="background: ${getVagalReadinessCategoryColor(vagalScore.category)}20; color: ${getVagalReadinessCategoryColor(vagalScore.category)}; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${getVagalReadinessCategoryLabel(vagalScore.category, vagalScore.isIncomplete)}</span>
       </div>
       <div class="vagal-score-value" style="color: ${getVagalReadinessCategoryColor(vagalScore.category)};">${vagalScore.score}</div>
       <p style="font-size: 13px; color: #666; margin-bottom: 16px;">

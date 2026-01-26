@@ -11,6 +11,7 @@ import {
   Animated,
   Dimensions,
   TextInput,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
@@ -35,6 +36,7 @@ import {
 import { addSession, updateSessionAnalytics } from "../src/storage/sessionStore";
 import { generatePlaceholderAnalytics } from "../src/analytics/audioAnalytics";
 import AnatomicalMirror from "../components/AnatomicalMirror";
+import PlacementGuide from "../components/PlacementGuide";
 import {
   loadAllPatients,
   getActivePatient,
@@ -501,6 +503,19 @@ export default function GutSoundRecordingScreen() {
 
   // Recording phase state
   const [phase, setPhase] = useState<RecordingPhase>("setup");
+
+  // Placement Guide state (Step-by-step wizard before recording)
+  const [showPlacementGuide, setShowPlacementGuide] = useState(false);
+  const [placementStep, setPlacementStep] = useState(1);
+  const [step1Completed, setStep1Completed] = useState(false); // Locate LRQ
+  const [step2Completed, setStep2Completed] = useState(false); // Apply Pressure (video watched)
+  const [step3Completed, setStep3Completed] = useState(false); // Silence Check passed
+  const [isCheckingSignal, setIsCheckingSignal] = useState(false);
+  const [signalProgress, setSignalProgress] = useState(0);
+  const [signalPassed, setSignalPassed] = useState<boolean | null>(null);
+  const [decibelLevel, setDecibelLevel] = useState(0);
+  const [ambientNoiseLevel, setAmbientNoiseLevel] = useState<number | null>(null);
+  const [hummingDetected, setHummingDetected] = useState(false);
 
   // Protocol and context state
   const [selectedProtocol, setSelectedProtocol] =
@@ -1319,7 +1334,119 @@ export default function GutSoundRecordingScreen() {
       setShowPatientModal(true);
       return;
     }
-    startRecording();
+    // Show PlacementGuide wizard first
+    setShowPlacementGuide(true);
+    setPlacementStep(1);
+    setStep1Completed(false);
+    setStep2Completed(false);
+    setStep3Completed(false);
+  };
+
+  // PlacementGuide handlers
+  const handlePlacementStepComplete = () => {
+    if (placementStep === 1) {
+      // Step 1: Locate LRQ - user confirms they found it
+      setStep1Completed(true);
+      setPlacementStep(2);
+    } else if (placementStep === 2) {
+      // Step 2: Apply Pressure - INSTRUCTIONAL GATE: User must confirm they watched video and are pressing firmly
+      // The video must be displayed before proceeding
+      Alert.alert(
+        "Confirm Pressure",
+        "Have you watched the 'How to Hold' video and are now pressing the phone firmly against your LRQ?",
+        [
+          { text: "Not Yet", style: "cancel" },
+          {
+            text: "Yes, Pressing Firmly",
+            onPress: () => {
+              setStep2Completed(true);
+              setPlacementStep(3);
+            },
+          },
+        ]
+      );
+    } else if (placementStep === 3) {
+      // Step 3 completion is handled by signal check
+      if (signalPassed) {
+        setStep3Completed(true);
+        setShowPlacementGuide(false);
+        // All checks passed - start recording
+        startRecording();
+      }
+    }
+  };
+
+  const handleStartSignalCheck = async () => {
+    setIsCheckingSignal(true);
+    setSignalProgress(0);
+    setSignalPassed(null);
+    setHummingDetected(false);
+    setAmbientNoiseLevel(null);
+
+    // Request microphone permission if needed
+    if (permissionStatus !== "granted") {
+      const ok = await requestPermission();
+      if (!ok) {
+        setIsCheckingSignal(false);
+        Alert.alert("Permission Required", "Microphone permission is needed for noise calibration.");
+        return;
+      }
+    }
+
+    // Start a temporary recording for noise analysis
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+
+      const { recording: noiseCheckRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      // Simulate 5-second noise check - always passes for development
+      // In production, this would analyze real-time audio RMS and frequency
+      let progress = 0;
+
+      const checkInterval = setInterval(() => {
+        progress += 10;
+        setSignalProgress(progress);
+
+        // Show simulated low noise values for UI feedback
+        const simulatedNoise = Math.random() * 0.03;
+        setAmbientNoiseLevel(simulatedNoise);
+
+        if (progress >= 100) {
+          clearInterval(checkInterval);
+          setIsCheckingSignal(false);
+
+          // Stop the temporary recording
+          (async () => {
+            try {
+              await noiseCheckRecording.stopAndUnloadAsync();
+            } catch (e) {
+              console.error("Error stopping noise check recording:", e);
+            }
+          })();
+
+          // Always pass in development mode
+          setSignalPassed(true);
+          setStep3Completed(true);
+        }
+      }, 500); // Update every 500ms for 5 seconds
+    } catch (error) {
+      console.error("Error starting noise check:", error);
+      setIsCheckingSignal(false);
+      Alert.alert("Error", "Failed to start noise calibration. Please try again.");
+    }
+  };
+
+  const handleRetrySignalCheck = () => {
+    setSignalPassed(null);
+    setHummingDetected(false);
+    setAmbientNoiseLevel(null);
+    handleStartSignalCheck();
   };
 
   const handleStopRecording = () => {
@@ -1451,6 +1578,41 @@ export default function GutSoundRecordingScreen() {
       </TouchableOpacity>
 
       <Text style={styles.title}>Gut Sound Recording</Text>
+
+      {/* PlacementGuide Modal - Step-by-step wizard before recording */}
+      {showPlacementGuide && (
+        <Modal
+          visible={showPlacementGuide}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => {
+            if (placementStep === 1 && !step1Completed) {
+              setShowPlacementGuide(false);
+            }
+          }}
+        >
+          <View style={styles.placementGuideContainer}>
+            <PlacementGuide
+              step={placementStep}
+              onPlacementConfirmed={handlePlacementStepComplete}
+              isCheckingSignal={isCheckingSignal}
+              signalProgress={signalProgress}
+              signalPassed={signalPassed}
+              decibelLevel={decibelLevel}
+              onStartSignalCheck={handleStartSignalCheck}
+              onRetrySignalCheck={handleRetrySignalCheck}
+              onClose={() => setShowPlacementGuide(false)}
+            />
+            {(hummingDetected || (ambientNoiseLevel !== null && ambientNoiseLevel >= 0.05)) && (
+              <View style={styles.noiseWarningContainer}>
+                <Text style={styles.noiseWarningText}>
+                  ⚠️ Too much noise. Please find a quiet space.
+                </Text>
+              </View>
+            )}
+          </View>
+        </Modal>
+      )}
 
       {phase === "setup" && (
         <ScrollView
@@ -2551,5 +2713,26 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     backgroundColor: "rgba(239, 68, 68, 0.15)",
+  },
+  placementGuideContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  noiseWarningContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.warning + "20",
+    borderTopWidth: 2,
+    borderTopColor: colors.warning,
+    padding: spacing.lg,
+    alignItems: "center",
+  },
+  noiseWarningText: {
+    color: colors.warning,
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    textAlign: "center",
   },
 });

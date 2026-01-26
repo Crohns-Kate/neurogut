@@ -7,9 +7,10 @@
  */
 
 import React, { useState, useEffect, useRef, memo } from "react";
-import { View, Text, StyleSheet, Animated, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, Animated, TouchableOpacity, ScrollView, Platform } from "react-native";
 import Svg, { Path, Circle, Rect, Line, G, Ellipse } from "react-native-svg";
 import { colors, typography, spacing, radius } from "../styles/theme";
+import VideoTutorial from "./VideoTutorial";
 
 interface PlacementGuideProps {
   /** Current step in the placement guide (1-3) */
@@ -28,128 +29,215 @@ interface PlacementGuideProps {
   onStartSignalCheck: () => void;
   /** Callback to retry signal check */
   onRetrySignalCheck: () => void;
+  /** Callback to close/dismiss the guide */
+  onClose?: () => void;
 }
 
 // Anatomical landmarks for LRQ placement
-const LRQ_CENTER = { x: 180, y: 220 }; // Lower Right Quadrant center
-const BELLY_BUTTON = { x: 150, y: 160 }; // Umbilicus
+// CORRECT ORIENTATION: User's right side is on the LEFT of the screen
+const LRQ_CENTER = { x: 120, y: 240 }; // Ileocecal valve - Lower Right Quadrant (user's right = screen left)
+const BELLY_BUTTON = { x: 150, y: 160 }; // Umbilicus (center)
+const HIP_BONE_RIGHT = { x: 100, y: 260 }; // Right hip bone landmark
 
 // Minimum decibel threshold for valid skin contact
 const MIN_DECIBEL_THRESHOLD = -50; // dB (relative to max)
 const SIGNAL_CHECK_DURATION = 5000; // 5 seconds
 
 /**
- * Static torso outline SVG
+ * Professional dark-mode anatomical mirror - realistic torso silhouette
  */
-const TorsoOutline = memo(function TorsoOutline() {
+const AnatomicalMirror = memo(function AnatomicalMirror() {
   return (
     <G>
-      {/* Torso outline - non-mirrored anatomical view */}
+      {/* Dark background for professional look */}
+      <Rect
+        x={0}
+        y={0}
+        width={300}
+        height={400}
+        fill="#0A0A0D"
+        rx={8}
+      />
+
+      {/* Realistic torso silhouette - professional anatomical view */}
+      {/* Main torso outline with subtle gradients */}
       <Path
-        d="M 100 50 Q 80 80 70 120 L 60 200 Q 55 250 60 300 L 80 350 L 220 350 L 240 300 Q 245 250 240 200 L 230 120 Q 220 80 200 50 Z"
-        fill="rgba(255, 255, 255, 0.05)"
-        stroke="rgba(255, 255, 255, 0.2)"
+        d="M 90 40 
+           Q 70 60 60 90 
+           L 55 140 
+           Q 50 180 55 220 
+           L 60 280 
+           Q 65 320 75 360 
+           L 100 380 
+           L 200 380 
+           L 225 360 
+           Q 235 320 240 280 
+           L 245 220 
+           Q 250 180 245 140 
+           L 240 90 
+           Q 230 60 210 40 
+           Z"
+        fill="rgba(20, 20, 25, 0.8)"
+        stroke="rgba(255, 255, 255, 0.12)"
+        strokeWidth={2.5}
+      />
+
+      {/* Subtle anatomical shading for depth */}
+      <Path
+        d="M 90 40 
+           Q 70 60 60 90 
+           L 55 140 
+           Q 50 180 55 220 
+           L 60 280 
+           Q 65 320 75 360 
+           L 100 380 
+           L 150 380 
+           L 150 360 
+           Q 145 320 140 280 
+           L 135 220 
+           Q 130 180 135 140 
+           L 140 90 
+           Q 150 60 170 40 
+           Z"
+        fill="rgba(15, 15, 20, 0.6)"
+        opacity={0.5}
+      />
+
+      {/* Ribcage anatomical lines */}
+      <Path
+        d="M 75 100 Q 150 95 225 100"
+        fill="none"
+        stroke="rgba(255, 255, 255, 0.08)"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M 70 120 Q 150 115 230 120"
+        fill="none"
+        stroke="rgba(255, 255, 255, 0.08)"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M 65 140 Q 150 135 235 140"
+        fill="none"
+        stroke="rgba(255, 255, 255, 0.08)"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+
+      {/* Pelvic bone structure hint */}
+      <Path
+        d="M 70 300 Q 150 340 230 300"
+        fill="none"
+        stroke="rgba(255, 255, 255, 0.1)"
         strokeWidth={2}
+        strokeLinecap="round"
       />
 
-      {/* Ribcage hint lines */}
-      <Path
-        d="M 85 100 Q 150 90 215 100"
-        fill="none"
-        stroke="rgba(255, 255, 255, 0.1)"
+      {/* Center line (Linea Alba) - subtle */}
+      <Line
+        x1={150}
+        y1={50}
+        x2={150}
+        y2={350}
+        stroke="rgba(255, 255, 255, 0.06)"
         strokeWidth={1}
-      />
-      <Path
-        d="M 80 120 Q 150 110 220 120"
-        fill="none"
-        stroke="rgba(255, 255, 255, 0.1)"
-        strokeWidth={1}
+        strokeDasharray="3,6"
       />
 
-      {/* Pelvis hint */}
-      <Path
-        d="M 70 280 Q 150 320 230 280"
+      {/* Right hip bone landmark (user's right = screen left) */}
+      <Circle
+        cx={HIP_BONE_RIGHT.x}
+        cy={HIP_BONE_RIGHT.y}
+        r={12}
         fill="none"
-        stroke="rgba(255, 255, 255, 0.1)"
-        strokeWidth={1}
+        stroke="rgba(255, 255, 255, 0.15)"
+        strokeWidth={1.5}
+        strokeDasharray="2,4"
+      />
+      <Circle
+        cx={HIP_BONE_RIGHT.x}
+        cy={HIP_BONE_RIGHT.y}
+        r={4}
+        fill="rgba(255, 255, 255, 0.2)"
       />
     </G>
   );
 });
 
 /**
- * Quadrant overlay showing LRQ highlight
+ * Static target ring SVG for ileocecal valve (pulsing handled by overlay)
  */
-const QuadrantOverlay = memo(function QuadrantOverlay({ highlightLRQ }: { highlightLRQ: boolean }) {
+const TargetRingSVG = memo(function TargetRingSVG() {
   return (
     <G>
-      {/* Vertical center line (Linea Alba) */}
-      <Line
-        x1={150}
-        y1={80}
-        x2={150}
-        y2={300}
-        stroke="rgba(255, 255, 255, 0.15)"
-        strokeWidth={1}
-        strokeDasharray="5,5"
-      />
-
-      {/* Horizontal line at umbilicus */}
-      <Line
-        x1={70}
-        y1={160}
-        x2={230}
-        y2={160}
-        stroke="rgba(255, 255, 255, 0.15)"
-        strokeWidth={1}
-        strokeDasharray="5,5"
-      />
-
-      {/* Belly button marker */}
-      <Circle
-        cx={BELLY_BUTTON.x}
-        cy={BELLY_BUTTON.y}
-        r={8}
-        fill="rgba(255, 255, 255, 0.1)"
-        stroke="rgba(255, 255, 255, 0.3)"
-        strokeWidth={1}
-      />
-
-      {/* LRQ highlight zone */}
-      {highlightLRQ && (
-        <Rect
-          x={155}
-          y={165}
-          width={70}
-          height={90}
-          rx={10}
-          fill={`${colors.accent}20`}
-          stroke={colors.accent}
-          strokeWidth={2}
-        />
-      )}
-
-      {/* LRQ target point */}
+      {/* Outer ring (will pulse via overlay) */}
       <Circle
         cx={LRQ_CENTER.x}
         cy={LRQ_CENTER.y}
-        r={highlightLRQ ? 15 : 8}
-        fill={highlightLRQ ? `${colors.accent}40` : "rgba(255, 255, 255, 0.1)"}
-        stroke={highlightLRQ ? colors.accent : "rgba(255, 255, 255, 0.3)"}
-        strokeWidth={highlightLRQ ? 3 : 1}
+        r={30}
+        fill="none"
+        stroke={colors.accent}
+        strokeWidth={2.5}
+        strokeDasharray="4,4"
+        opacity={0.7}
       />
-
-      {/* Quadrant labels */}
-      <G>
-        {/* Right Upper Quadrant */}
-        <Circle cx={190} cy={120} r={3} fill="rgba(255, 255, 255, 0.2)" />
-        {/* Left Upper Quadrant */}
-        <Circle cx={110} cy={120} r={3} fill="rgba(255, 255, 255, 0.2)" />
-        {/* Right Lower Quadrant - TARGET */}
-        <Circle cx={190} cy={220} r={6} fill={highlightLRQ ? colors.accent : "rgba(255, 255, 255, 0.2)"} />
-        {/* Left Lower Quadrant */}
-        <Circle cx={110} cy={220} r={3} fill="rgba(255, 255, 255, 0.2)" />
-      </G>
+      {/* Inner solid ring */}
+      <Circle
+        cx={LRQ_CENTER.x}
+        cy={LRQ_CENTER.y}
+        r={20}
+        fill="none"
+        stroke={colors.accent}
+        strokeWidth={2}
+        opacity={0.9}
+      />
+      {/* Center target point */}
+      <Circle
+        cx={LRQ_CENTER.x}
+        cy={LRQ_CENTER.y}
+        r={6}
+        fill={colors.accent}
+        opacity={0.9}
+      />
+      {/* Crosshair for precision */}
+      <Line
+        x1={LRQ_CENTER.x - 15}
+        y1={LRQ_CENTER.y}
+        x2={LRQ_CENTER.x - 8}
+        y2={LRQ_CENTER.y}
+        stroke={colors.accent}
+        strokeWidth={1.5}
+        opacity={0.6}
+      />
+      <Line
+        x1={LRQ_CENTER.x + 8}
+        y1={LRQ_CENTER.y}
+        x2={LRQ_CENTER.x + 15}
+        y2={LRQ_CENTER.y}
+        stroke={colors.accent}
+        strokeWidth={1.5}
+        opacity={0.6}
+      />
+      <Line
+        x1={LRQ_CENTER.x}
+        y1={LRQ_CENTER.y - 15}
+        x2={LRQ_CENTER.x}
+        y2={LRQ_CENTER.y - 8}
+        stroke={colors.accent}
+        strokeWidth={1.5}
+        opacity={0.6}
+      />
+      <Line
+        x1={LRQ_CENTER.x}
+        y1={LRQ_CENTER.y + 8}
+        x2={LRQ_CENTER.x}
+        y2={LRQ_CENTER.y + 15}
+        stroke={colors.accent}
+        strokeWidth={1.5}
+        opacity={0.6}
+      />
     </G>
   );
 });
@@ -262,39 +350,42 @@ export default function PlacementGuide({
   decibelLevel,
   onStartSignalCheck,
   onRetrySignalCheck,
+  onClose,
 }: PlacementGuideProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Pulse animation for target
+  // Pulse animation for teal target ring (Step 1: Locate LRQ)
   useEffect(() => {
-    if (step === 2) {
+    if (step === 1) {
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.2,
-            duration: 1000,
+            toValue: 1.3,
+            duration: 1200,
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 1000,
+            duration: 1200,
             useNativeDriver: true,
           }),
         ])
       );
       pulse.start();
       return () => pulse.stop();
+    } else {
+      pulseAnim.setValue(1);
     }
   }, [step, pulseAnim]);
 
   const getStepTitle = () => {
     switch (step) {
       case 1:
-        return "Find Your Belly Button";
+        return "Locate LRQ";
       case 2:
-        return "Move to Lower Right";
+        return "Apply Pressure";
       case 3:
-        return "Signal Check";
+        return "Silence Check";
       default:
         return "";
     }
@@ -303,59 +394,120 @@ export default function PlacementGuide({
   const getStepDescription = () => {
     switch (step) {
       case 1:
-        return "Locate your belly button (umbilicus). This is your reference point.";
+        return "Find your belly button, then move 2-3 inches down and to YOUR right. This is the Lower Right Quadrant (LRQ) where gut sounds are clearest.";
       case 2:
-        return "Move the phone 2-3 inches down and to YOUR right. This is the Lower Right Quadrant (LRQ) where gut sounds are clearest.";
+        return "Hold the phone firmly against your skin with steady, gentle pressure. The microphone should make full contact.";
       case 3:
-        return "Press the phone firmly against your skin. We'll check for a good signal.";
+        return "We'll check your environment for background noise. Stay still and quiet for 5 seconds.";
       default:
         return "";
     }
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.scrollContainer}
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Header with close button */}
+      {onClose && (
+        <View style={styles.headerRow}>
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <StepIndicator currentStep={step} totalSteps={3} />
 
       <Text style={styles.title}>{getStepTitle()}</Text>
       <Text style={styles.description}>{getStepDescription()}</Text>
 
-      {/* Anatomical SVG */}
-      <View style={styles.svgContainer}>
-        <Svg width={300} height={400} viewBox="0 0 300 400">
-          <TorsoOutline />
-          <QuadrantOverlay highlightLRQ={step >= 2} />
-          <PlacementArrow visible={step === 2} />
-        </Svg>
+      {/* Step 1: Locate LRQ - Professional Anatomical Mirror */}
+      {step === 1 && (
+        <View style={styles.svgContainer}>
+          <Svg width={300} height={400} viewBox="0 0 300 400">
+            <AnatomicalMirror />
+            <TargetRingSVG />
+          </Svg>
 
-        {/* Animated target overlay for step 2 */}
-        {step === 2 && (
+          {/* Pulsing teal target ring overlay */}
           <Animated.View
             style={[
-              styles.targetPulse,
+              styles.targetRingOverlay,
               {
+                left: LRQ_CENTER.x - 30,
+                top: LRQ_CENTER.y - 30,
                 transform: [{ scale: pulseAnim }],
-                left: LRQ_CENTER.x - 25 + 25, // Adjust for SVG offset
-                top: LRQ_CENTER.y - 25,
+                opacity: pulseAnim.interpolate({
+                  inputRange: [1, 1.2],
+                  outputRange: [0.6, 1],
+                }),
               },
             ]}
           />
-        )}
-      </View>
+        </View>
+      )}
 
-      {/* Signal Check UI for Step 3 */}
+      {/* Step 2: Apply Pressure - Video Tutorial */}
+      {step === 2 && (
+        <View style={styles.pressureContainer}>
+          <VideoTutorial
+            title="How to Hold Your Phone"
+            description="Apply firm, steady pressure with the microphone against your skin. Avoid gaps or movement."
+            onComplete={onPlacementConfirmed}
+            showSkip={false}
+          />
+          
+          <View style={styles.pressureTips}>
+            <Text style={styles.tipsTitle}>Pressure Tips:</Text>
+            <View style={styles.tipItem}>
+              <Text style={styles.tipBullet}>•</Text>
+              <Text style={styles.tipText}>Use your palm to press the phone flat against your abdomen</Text>
+            </View>
+            <View style={styles.tipItem}>
+              <Text style={styles.tipBullet}>•</Text>
+              <Text style={styles.tipText}>Maintain steady pressure—not too light, not too hard</Text>
+            </View>
+            <View style={styles.tipItem}>
+              <Text style={styles.tipBullet}>•</Text>
+              <Text style={styles.tipText}>Keep the phone still during the entire recording</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Step 3: Silence Check - Environment Noise Calibration */}
       {step === 3 && (
-        <View style={styles.signalCheckContainer}>
+        <View style={styles.silenceCheckContainer}>
+          <View style={styles.silenceInfo}>
+            <Text style={styles.silenceTitle}>Environment Noise Calibration</Text>
+            <Text style={styles.silenceDescription}>
+              We'll measure background noise to ensure accurate gut sound detection. Stay still and quiet.
+            </Text>
+          </View>
+
           {isCheckingSignal ? (
             <SignalIndicator
               progress={signalProgress}
               decibels={decibelLevel}
               passed={signalPassed}
             />
+          ) : signalPassed === true ? (
+            <View style={styles.successContainer}>
+              <View style={styles.successIcon}>
+                <Text style={styles.successIconText}>✓</Text>
+              </View>
+              <Text style={styles.successTitle}>Silence Check Passed!</Text>
+              <Text style={styles.successText}>
+                Your environment is quiet enough for accurate gut sound recording.
+              </Text>
+            </View>
           ) : signalPassed === false ? (
             <View style={styles.retryContainer}>
               <Text style={styles.retryText}>
-                Weak signal detected. Ensure firm skin contact and try again.
+                Too much background noise detected. Move to a quieter location and try again.
               </Text>
               <TouchableOpacity
                 style={styles.retryButton}
@@ -369,21 +521,65 @@ export default function PlacementGuide({
               style={styles.checkButton}
               onPress={onStartSignalCheck}
             >
-              <Text style={styles.checkButtonText}>Start Signal Check</Text>
+              <Text style={styles.checkButtonText}>Start Silence Check</Text>
             </TouchableOpacity>
           )}
         </View>
       )}
 
+      {/* VRS Complexity Meter - Shows analysis depth */}
+      <View style={styles.vrsComplexityContainer}>
+        <Text style={styles.vrsComplexityTitle}>Vagal Readiness Score Analysis</Text>
+        <Text style={styles.vrsComplexitySubtitle}>Multi-layered complexity meter</Text>
+        
+        <View style={styles.complexityMeter}>
+          {/* Baseline Component */}
+          <View style={styles.complexityBar}>
+            <View style={styles.complexityBarLabel}>
+              <Text style={styles.complexityLabel}>Baseline Motility</Text>
+              <Text style={styles.complexityValue}>40%</Text>
+            </View>
+            <View style={styles.complexityBarTrack}>
+              <View style={[styles.complexityBarFill, { width: '40%', backgroundColor: colors.accent }]} />
+            </View>
+          </View>
+
+          {/* Rhythmicity Component */}
+          <View style={styles.complexityBar}>
+            <View style={styles.complexityBarLabel}>
+              <Text style={styles.complexityLabel}>Rhythmicity Index</Text>
+              <Text style={styles.complexityValue}>30%</Text>
+            </View>
+            <View style={styles.complexityBarTrack}>
+              <View style={[styles.complexityBarFill, { width: '30%', backgroundColor: colors.info }]} />
+            </View>
+          </View>
+
+          {/* Intervention Delta Component */}
+          <View style={styles.complexityBar}>
+            <View style={styles.complexityBarLabel}>
+              <Text style={styles.complexityLabel}>4-7-8 Intervention Delta</Text>
+              <Text style={styles.complexityValue}>30%</Text>
+            </View>
+            <View style={styles.complexityBarTrack}>
+              <View style={[styles.complexityBarFill, { width: '30%', backgroundColor: colors.success }]} />
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.complexityNote}>
+          The VRS combines three layers of analysis to quantify your gut-brain connection and autonomic nervous system health.
+        </Text>
+      </View>
+
       {/* Navigation buttons */}
-      {step < 3 && (
+      {/* Step 1 has its own button, Step 2 uses VideoTutorial's "I Understand" button */}
+      {step === 1 && (
         <TouchableOpacity
           style={styles.nextButton}
           onPress={onPlacementConfirmed}
         >
-          <Text style={styles.nextButtonText}>
-            {step === 1 ? "I Found It" : "Phone is Placed"}
-          </Text>
+          <Text style={styles.nextButtonText}>I Found LRQ</Text>
         </TouchableOpacity>
       )}
 
@@ -395,16 +591,40 @@ export default function PlacementGuide({
           <Text style={styles.nextButtonText}>Start Recording</Text>
         </TouchableOpacity>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  scrollContainer: {
     flex: 1,
+  },
+  container: {
     alignItems: "center",
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
+    paddingBottom: spacing.xl,
+  },
+  headerRow: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginBottom: spacing.sm,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.backgroundCard,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  closeButtonText: {
+    fontSize: typography.sizes.lg,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
   },
   stepIndicator: {
     flexDirection: "row",
@@ -430,14 +650,19 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     textAlign: "center",
     marginBottom: spacing.sm,
+    fontFamily: Platform.select({ ios: "Space Grotesk", android: "sans-serif" }),
+    letterSpacing: -0.5,
   },
   description: {
-    fontSize: typography.sizes.base,
+    fontSize: typography.sizes.md,
     color: colors.textSecondary,
     textAlign: "center",
-    lineHeight: typography.sizes.base * 1.5,
+    lineHeight: typography.sizes.md * 1.4,
     marginBottom: spacing.lg,
     paddingHorizontal: spacing.md,
+    fontFamily: Platform.select({ ios: "Space Grotesk", android: "sans-serif" }),
+    fontWeight: typography.weights.medium,
+    letterSpacing: 0.2,
   },
   svgContainer: {
     position: "relative",
@@ -451,6 +676,16 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: colors.accent,
     opacity: 0.5,
+  },
+  targetRingOverlay: {
+    position: "absolute",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2.5,
+    borderColor: colors.accent,
+    borderStyle: "dashed",
+    backgroundColor: "transparent",
   },
   signalCheckContainer: {
     width: "100%",
@@ -532,6 +767,173 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: typography.sizes.base,
     fontWeight: typography.weights.semibold,
+  },
+  landmarksInfo: {
+    marginTop: spacing.lg,
+    width: "100%",
+    gap: spacing.sm,
+  },
+  landmarkItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  landmarkDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+  },
+  landmarkText: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+  },
+  pressureContainer: {
+    width: "100%",
+    marginBottom: spacing.lg,
+  },
+  pressureTips: {
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.md,
+    gap: spacing.sm,
+  },
+  tipsTitle: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  tipItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+  },
+  tipBullet: {
+    fontSize: typography.sizes.base,
+    color: colors.accent,
+    fontWeight: typography.weights.bold,
+  },
+  tipText: {
+    flex: 1,
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    lineHeight: typography.sizes.base * 1.4,
+  },
+  silenceCheckContainer: {
+    width: "100%",
+    marginBottom: spacing.lg,
+  },
+  silenceInfo: {
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.md,
+  },
+  silenceTitle: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  silenceDescription: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    lineHeight: typography.sizes.base * 1.4,
+  },
+  successContainer: {
+    alignItems: "center",
+    padding: spacing.lg,
+    backgroundColor: colors.success + "15",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.success + "40",
+  },
+  successIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.success,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  successIconText: {
+    fontSize: 32,
+    color: colors.background,
+    fontWeight: typography.weights.bold,
+  },
+  successTitle: {
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.bold,
+    color: colors.success,
+    marginBottom: spacing.sm,
+  },
+  successText: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: typography.sizes.sm * 1.4,
+  },
+  vrsComplexityContainer: {
+    width: "100%",
+    marginTop: spacing.xl,
+    padding: spacing.lg,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.accent + "30",
+  },
+  vrsComplexityTitle: {
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  vrsComplexitySubtitle: {
+    fontSize: typography.sizes.sm,
+    color: colors.textMuted,
+    marginBottom: spacing.md,
+  },
+  complexityMeter: {
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  complexityBar: {
+    gap: spacing.xs,
+  },
+  complexityBarLabel: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  complexityLabel: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  complexityValue: {
+    fontSize: typography.sizes.sm,
+    color: colors.accent,
+    fontWeight: typography.weights.semibold,
+  },
+  complexityBarTrack: {
+    height: 8,
+    backgroundColor: colors.backgroundElevated,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  complexityBarFill: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  complexityNote: {
+    fontSize: typography.sizes.xs,
+    color: colors.textMuted,
+    fontStyle: "italic",
+    lineHeight: typography.sizes.sm * 1.4,
+    marginTop: spacing.sm,
   },
 });
 

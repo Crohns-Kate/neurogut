@@ -1,0 +1,26 @@
+{
+  "name": "neurogut-video-tutorial",
+  "version": "1.0.0",
+  "description": "Remotion video tutorial for Neurogut phone placement guide",
+  "scripts": {
+    "start": "remotion studio",
+    "build": "remotion render PlacementTutorial out/placement-tutorial.mp4",
+    "build:square": "remotion render PlacementTutorialSquare out/placement-tutorial-square.mp4",
+    "build:landscape": "remotion render PlacementTutorialLandscape out/placement-tutorial-landscape.mp4",
+    "build:gif": "remotion render PlacementTutorial out/placement-tutorial.gif --image-format=png --codec=gif",
+    "build:all": "npm run build && npm run build:square && npm run build:gif",
+    "generate-voiceover": "node generate-voiceover.js"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.409",
+    "@remotion/cli": "^4.0.409",
+    "@remotion/renderer": "^4.0.409",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "remotion": "^4.0.409"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "typescript": "^5.0.0"
+  }
+}

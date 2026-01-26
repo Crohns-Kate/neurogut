@@ -27,8 +27,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-
-    "platforms": ["android", "ios", "web"],
-    "scheme": "neurogut"
+    "platforms": [
+      "android",
+      "ios",
+      "web"
+    ],
+    "scheme": "neurogut",
+    "plugins": [
+      "expo-router"
+    ]
   }
 }

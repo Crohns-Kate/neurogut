@@ -237,6 +237,37 @@ function calculateMotilityIndex(
 }
 
 /**
+ * Detect flat noise (lack of muffled quality indicating no skin contact)
+ * 
+ * Skin contact creates a "muffled" quality due to:
+ * - Damping of high frequencies by tissue
+ * - Increased low-frequency content
+ * - Reduced dynamic range
+ * 
+ * Flat noise (phone on table) has:
+ * - High coefficient of variation (CV) in energy (room hum variations)
+ * - But very low overall energy variance
+ * - No characteristic muffling pattern
+ * 
+ * @param energyValues - Windowed RMS energy values
+ * @returns true if flat noise detected (no skin contact)
+ */
+function detectFlatNoise(energyValues: number[]): boolean {
+  if (energyValues.length < 10) return false;
+
+  const avgEnergy = mean(energyValues);
+  const energyStdDev = stdDev(energyValues);
+  
+  // Coefficient of variation (CV) = stdDev / mean
+  // Flat noise has very low CV (< 0.08) - consistent background hum
+  const cv = avgEnergy > 0 ? energyStdDev / avgEnergy : 0;
+  
+  // Also check for lack of muffling: skin contact should have more variation
+  // If CV is too low AND energy is very consistent, it's likely flat noise
+  return cv < 0.08 && energyStdDev < avgEnergy * 0.05;
+}
+
+/**
  * Analyze audio samples and compute session analytics
  *
  * @param samples - Raw audio samples (normalized to -1 to 1 range)
@@ -256,6 +287,20 @@ export function analyzeAudioSamples(
 
   // Compute windowed energy
   const energyValues = computeWindowedEnergy(samples, windowSizeSamples);
+
+  // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
+  const isFlatNoise = detectFlatNoise(energyValues);
+  if (isFlatNoise) {
+    // Return zero motility for flat noise (phone on table, no skin contact)
+    return {
+      eventsPerMinute: 0,
+      totalActiveSeconds: 0,
+      totalQuietSeconds: Math.round(durationSeconds),
+      motilityIndex: 0,
+      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+      timelineSegments: CONFIG.timelineSegments,
+    };
+  }
 
   // Detect events
   const events = detectEvents(energyValues);

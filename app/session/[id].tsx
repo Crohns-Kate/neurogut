@@ -335,7 +335,7 @@ export default function SessionDetailScreen() {
             </Text>
             <View style={[styles.vagalCategoryBadge, { backgroundColor: getVagalReadinessCategoryColor(vagalScore.category) + '20' }]}>
               <Text style={[styles.vagalCategoryText, { color: getVagalReadinessCategoryColor(vagalScore.category) }]}>
-                {getVagalReadinessCategoryLabel(vagalScore.category)}
+                {getVagalReadinessCategoryLabel(vagalScore.category, vagalScore.isIncomplete)}
               </Text>
             </View>
           </View>

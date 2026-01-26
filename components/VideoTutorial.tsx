@@ -1,12 +1,16 @@
 /**
- * VideoTutorial - Video/GIF Tutorial Component
+ * VideoTutorial - Animated Tutorial Component
  *
- * Placeholder for AI-generated Video Tutorial on onboarding.
- * Supports lightweight video player or high-quality GIF showing
- * 'Belly Button to LRQ' movement demonstration.
+ * Shows phone placement on LRQ with animated anatomical illustration.
+ * Includes step-by-step visual guidance with pulsing animations.
+ *
+ * Supports:
+ * - Native animated illustration (default, no dependencies)
+ * - Video playback (when videoSource provided)
+ * - GIF display (when gifSource provided)
  */
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,8 +19,11 @@ import {
   Image,
   ActivityIndicator,
   Dimensions,
+  Animated,
+  Easing,
 } from "react-native";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
+import Svg, { Path, Circle, Line, G, Rect, Defs, RadialGradient, Stop } from "react-native-svg";
 import { colors, typography, spacing, radius } from "../styles/theme";
 
 interface VideoTutorialProps {
@@ -39,51 +46,201 @@ interface VideoTutorialProps {
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const VIDEO_WIDTH = SCREEN_WIDTH - spacing.lg * 2;
-const VIDEO_HEIGHT = VIDEO_WIDTH * (9 / 16); // 16:9 aspect ratio
+const VIDEO_WIDTH = Math.min(SCREEN_WIDTH - spacing.lg * 2, 400);
+const VIDEO_HEIGHT = VIDEO_WIDTH * 1.2;
+
+// Anatomical positions (scaled for VIDEO_WIDTH)
+const SCALE = VIDEO_WIDTH / 300;
+const BELLY_BUTTON = { x: 150 * SCALE, y: 100 * SCALE };
+const LRQ_CENTER = { x: 110 * SCALE, y: 180 * SCALE }; // User's right = screen left
 
 /**
- * Placeholder content when no video/gif is provided
+ * Animated anatomical illustration showing phone placement
  */
-function PlaceholderContent({ onPlay }: { onPlay: () => void }) {
+function AnimatedTutorial({ onComplete }: { onComplete?: () => void }) {
+  const [currentStep, setCurrentStep] = useState(0);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  // Auto-advance through steps
+  useEffect(() => {
+    const stepDurations = [3000, 4000, 4000, 3000];
+    let timeout: ReturnType<typeof setTimeout>;
+
+    if (currentStep < 3) {
+      timeout = setTimeout(() => {
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          setCurrentStep(prev => prev + 1);
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }).start();
+        });
+      }, stepDurations[currentStep]);
+    }
+
+    return () => clearTimeout(timeout);
+  }, [currentStep, fadeAnim]);
+
+  // Pulse animation for target
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.2,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [pulseAnim]);
+
+  const steps = [
+    { title: "Find Belly Button", description: "Start at your belly button as a reference point" },
+    { title: "Move to LRQ", description: "Move 2-3 inches down and to YOUR right" },
+    { title: "Apply Pressure", description: "Press phone firmly against your skin" },
+    { title: "Ready!", description: "Hold still for accurate gut sound recording" },
+  ];
+
+  const currentStepData = steps[currentStep];
+
+  // Calculate SVG dimensions
+  const svgWidth = VIDEO_WIDTH;
+  const svgHeight = VIDEO_HEIGHT;
+  const s = SCALE;
+
   return (
-    <View style={styles.placeholderContainer}>
-      <View style={styles.placeholderAnimation}>
-        {/* Animated illustration showing belly button to LRQ movement */}
-        <View style={styles.torsoOutline}>
-          {/* Belly button marker */}
-          <View style={styles.bellyButton}>
-            <Text style={styles.markerLabel}>1</Text>
-          </View>
+    <View style={styles.animatedContainer}>
+      <View style={styles.svgWrapper}>
+        <Svg width={svgWidth} height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`}>
+          <Defs>
+            <RadialGradient id="lrqGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor={colors.accent} stopOpacity="0.4" />
+              <Stop offset="100%" stopColor={colors.accent} stopOpacity="0" />
+            </RadialGradient>
+          </Defs>
 
-          {/* Arrow */}
-          <View style={styles.arrowContainer}>
-            <Text style={styles.arrowText}>→</Text>
-          </View>
+          {/* Background */}
+          <Rect x={0} y={0} width={svgWidth} height={svgHeight} fill="#0A0A0D" rx={12 * s} />
 
-          {/* LRQ marker */}
-          <View style={styles.lrqMarker}>
-            <Text style={styles.markerLabel}>2</Text>
-          </View>
-        </View>
+          {/* Torso outline */}
+          <Path
+            d={`M ${80*s} ${30*s} Q ${60*s} ${50*s} ${50*s} ${80*s} L ${45*s} ${150*s} Q ${40*s} ${200*s} ${45*s} ${250*s} L ${55*s} ${300*s} L ${245*s} ${300*s} L ${255*s} ${250*s} Q ${260*s} ${200*s} ${255*s} ${150*s} L ${250*s} ${80*s} Q ${240*s} ${50*s} ${220*s} ${30*s} Z`}
+            fill="rgba(20, 20, 25, 0.8)"
+            stroke="rgba(255, 255, 255, 0.12)"
+            strokeWidth={2}
+          />
+
+          {/* Ribcage lines */}
+          <Path d={`M ${65*s} ${70*s} Q ${150*s} ${65*s} ${235*s} ${70*s}`} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1.5} />
+          <Path d={`M ${60*s} ${90*s} Q ${150*s} ${85*s} ${240*s} ${90*s}`} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1.5} />
+
+          {/* Center line */}
+          <Line x1={150*s} y1={40*s} x2={150*s} y2={280*s} stroke="rgba(255,255,255,0.06)" strokeWidth={1} strokeDasharray="4,8" />
+
+          {/* Pelvic curve */}
+          <Path d={`M ${60*s} ${260*s} Q ${150*s} ${290*s} ${240*s} ${260*s}`} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={2} />
+
+          {/* Belly button */}
+          <Circle cx={BELLY_BUTTON.x} cy={BELLY_BUTTON.y} r={10*s} fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.3)" strokeWidth={2} />
+
+          {/* LRQ Target */}
+          <G>
+            <Circle cx={LRQ_CENTER.x} cy={LRQ_CENTER.y} r={50*s} fill="url(#lrqGlow)" />
+            <Circle cx={LRQ_CENTER.x} cy={LRQ_CENTER.y} r={35*s} fill="none" stroke={colors.accent} strokeWidth={2.5} strokeDasharray="6,4" opacity={0.7} />
+            <Circle cx={LRQ_CENTER.x} cy={LRQ_CENTER.y} r={25*s} fill="none" stroke={colors.accent} strokeWidth={2} opacity={0.9} />
+            <Circle cx={LRQ_CENTER.x} cy={LRQ_CENTER.y} r={8*s} fill={colors.accent} opacity={0.9} />
+            <Line x1={LRQ_CENTER.x - 18*s} y1={LRQ_CENTER.y} x2={LRQ_CENTER.x - 10*s} y2={LRQ_CENTER.y} stroke={colors.accent} strokeWidth={2} opacity={0.6} />
+            <Line x1={LRQ_CENTER.x + 10*s} y1={LRQ_CENTER.y} x2={LRQ_CENTER.x + 18*s} y2={LRQ_CENTER.y} stroke={colors.accent} strokeWidth={2} opacity={0.6} />
+            <Line x1={LRQ_CENTER.x} y1={LRQ_CENTER.y - 18*s} x2={LRQ_CENTER.x} y2={LRQ_CENTER.y - 10*s} stroke={colors.accent} strokeWidth={2} opacity={0.6} />
+            <Line x1={LRQ_CENTER.x} y1={LRQ_CENTER.y + 10*s} x2={LRQ_CENTER.x} y2={LRQ_CENTER.y + 18*s} stroke={colors.accent} strokeWidth={2} opacity={0.6} />
+          </G>
+
+          {/* Arrow from belly button to LRQ */}
+          {currentStep >= 1 && (
+            <Path
+              d={`M ${BELLY_BUTTON.x} ${BELLY_BUTTON.y + 12*s} Q ${130*s} ${140*s} ${LRQ_CENTER.x + 20*s} ${LRQ_CENTER.y - 15*s}`}
+              fill="none"
+              stroke={colors.accent}
+              strokeWidth={3}
+              strokeLinecap="round"
+            />
+          )}
+
+          {/* Phone icon */}
+          {currentStep >= 2 && (
+            <G>
+              <Rect x={LRQ_CENTER.x - 20*s} y={LRQ_CENTER.y - 35*s} width={40*s} height={70*s} rx={6*s} fill="#2a2a2f" stroke="#555" strokeWidth={1.5} />
+              <Rect x={LRQ_CENTER.x - 17*s} y={LRQ_CENTER.y - 28*s} width={34*s} height={56*s} rx={4*s} fill="#1a1a1f" />
+              <Circle cx={LRQ_CENTER.x} cy={LRQ_CENTER.y} r={10*s} fill="none" stroke={colors.accent} strokeWidth={1.5} opacity={0.5} />
+              <Circle cx={LRQ_CENTER.x} cy={LRQ_CENTER.y} r={18*s} fill="none" stroke={colors.accent} strokeWidth={1} opacity={0.3} />
+            </G>
+          )}
+        </Svg>
+
+        {/* Pulsing overlay ring */}
+        {currentStep < 2 && (
+          <Animated.View
+            style={[
+              styles.pulsingRing,
+              {
+                left: LRQ_CENTER.x - 40*s,
+                top: LRQ_CENTER.y - 40*s,
+                width: 80*s,
+                height: 80*s,
+                borderRadius: 40*s,
+                transform: [{ scale: pulseAnim }],
+              },
+            ]}
+          />
+        )}
       </View>
 
-      <Text style={styles.placeholderTitle}>Phone Placement Guide</Text>
-      <Text style={styles.placeholderText}>
-        Move from belly button down and to your right
-      </Text>
+      {/* Step indicator */}
+      <View style={styles.stepIndicator}>
+        {steps.map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.stepDot,
+              index === currentStep && styles.stepDotActive,
+              index < currentStep && styles.stepDotCompleted,
+            ]}
+          />
+        ))}
+      </View>
 
-      <TouchableOpacity style={styles.playButton} onPress={onPlay}>
-        <Text style={styles.playIcon}>▶</Text>
-        <Text style={styles.playText}>Watch Tutorial</Text>
-      </TouchableOpacity>
+      {/* Step text */}
+      <Animated.View style={[styles.stepTextContainer, { opacity: fadeAnim }]}>
+        <Text style={styles.stepTitle}>{currentStepData.title}</Text>
+        <Text style={styles.stepDescription}>{currentStepData.description}</Text>
+      </Animated.View>
+
+      {/* Labels */}
+      <View style={[styles.label, { top: BELLY_BUTTON.y - 30*s, left: BELLY_BUTTON.x - 40*s }]}>
+        <Text style={styles.labelText}>Belly Button</Text>
+      </View>
+      <View style={[styles.label, { top: LRQ_CENTER.y + 50*s, left: LRQ_CENTER.x - 20*s }]}>
+        <Text style={[styles.labelText, { color: colors.accent }]}>LRQ</Text>
+      </View>
     </View>
   );
 }
 
-/**
- * Loading state while video/gif loads
- */
 function LoadingState() {
   return (
     <View style={styles.loadingContainer}>
@@ -93,9 +250,6 @@ function LoadingState() {
   );
 }
 
-/**
- * Main VideoTutorial component
- */
 export default function VideoTutorial({
   videoSource,
   gifSource,
@@ -138,12 +292,6 @@ export default function VideoTutorial({
   };
 
   const renderContent = () => {
-    // No source provided - show placeholder
-    if (!videoSource && !gifSource) {
-      return <PlaceholderContent onPlay={() => onComplete?.()} />;
-    }
-
-    // GIF mode
     if (useGif && gifSource) {
       return (
         <View style={styles.mediaContainer}>
@@ -156,12 +304,10 @@ export default function VideoTutorial({
       );
     }
 
-    // Video mode
     if (videoSource) {
       return (
         <View style={styles.mediaContainer}>
           {isLoading && <LoadingState />}
-
           <Video
             ref={videoRef}
             source={typeof videoSource === "string" ? { uri: videoSource } : videoSource}
@@ -172,7 +318,6 @@ export default function VideoTutorial({
             posterSource={posterSource ? (typeof posterSource === "string" ? { uri: posterSource } : posterSource) : undefined}
             posterStyle={styles.poster}
           />
-
           {!isPlaying && !hasFinished && (
             <TouchableOpacity style={styles.videoOverlay} onPress={handlePlay}>
               <View style={styles.playCircle}>
@@ -180,7 +325,6 @@ export default function VideoTutorial({
               </View>
             </TouchableOpacity>
           )}
-
           {hasFinished && (
             <View style={styles.finishedOverlay}>
               <TouchableOpacity style={styles.replayButton} onPress={handleReplay}>
@@ -193,21 +337,18 @@ export default function VideoTutorial({
       );
     }
 
-    return <PlaceholderContent onPlay={() => onComplete?.()} />;
+    return <AnimatedTutorial onComplete={onComplete} />;
   };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.description}>{description}</Text>
       </View>
 
-      {/* Video/GIF content */}
       {renderContent()}
 
-      {/* Key points */}
       <View style={styles.keyPoints}>
         <View style={styles.keyPoint}>
           <Text style={styles.keyPointNumber}>1</Text>
@@ -223,20 +364,17 @@ export default function VideoTutorial({
         </View>
       </View>
 
-      {/* Action buttons */}
       <View style={styles.buttonContainer}>
         {showSkip && (
           <TouchableOpacity style={styles.skipButton} onPress={onComplete}>
-            <Text style={styles.skipButtonText}>Skip Tutorial</Text>
+            <Text style={styles.skipButtonText}>Skip</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity
           style={[styles.continueButton, !showSkip && styles.continueButtonFull]}
           onPress={onComplete}
         >
-          <Text style={styles.continueButtonText}>
-            {hasFinished ? "Continue" : "I Understand"}
-          </Text>
+          <Text style={styles.continueButtonText}>I Understand</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -245,35 +383,89 @@ export default function VideoTutorial({
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
   },
   header: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   title: {
-    fontSize: typography.sizes.xl,
+    fontSize: typography.sizes.lg,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
     textAlign: "center",
   },
   description: {
-    fontSize: typography.sizes.base,
+    fontSize: typography.sizes.sm,
     color: colors.textSecondary,
     textAlign: "center",
-    lineHeight: typography.sizes.base * 1.5,
+    lineHeight: typography.sizes.sm * 1.5,
+  },
+  animatedContainer: {
+    width: VIDEO_WIDTH,
+    alignSelf: "center",
+    marginBottom: spacing.md,
+  },
+  svgWrapper: {
+    position: "relative",
+  },
+  pulsingRing: {
+    position: "absolute",
+    borderWidth: 2,
+    borderColor: colors.accent,
+    opacity: 0.5,
+  },
+  stepIndicator: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginVertical: spacing.md,
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border,
+  },
+  stepDotActive: {
+    width: 20,
+    backgroundColor: colors.accent,
+  },
+  stepDotCompleted: {
+    backgroundColor: colors.success,
+  },
+  stepTextContainer: {
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+  },
+  stepTitle: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  stepDescription: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  label: {
+    position: "absolute",
+  },
+  labelText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textMuted,
+    fontWeight: typography.weights.medium,
   },
   mediaContainer: {
     width: VIDEO_WIDTH,
-    height: VIDEO_HEIGHT,
+    height: VIDEO_WIDTH * 0.75,
     backgroundColor: colors.backgroundCard,
     borderRadius: radius.lg,
     overflow: "hidden",
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     position: "relative",
+    alignSelf: "center",
   },
   video: {
     width: "100%",
@@ -297,17 +489,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   playCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: colors.accent,
     justifyContent: "center",
     alignItems: "center",
   },
   playIcon: {
-    fontSize: 32,
+    fontSize: 24,
     color: colors.background,
-    marginLeft: 4, // Visual centering for play icon
+    marginLeft: 4,
   },
   finishedOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -324,12 +516,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   replayIcon: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.accent,
     marginRight: spacing.sm,
   },
   replayText: {
-    fontSize: typography.sizes.base,
+    fontSize: typography.sizes.sm,
     color: colors.textPrimary,
   },
   loadingContainer: {
@@ -342,95 +534,8 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.sm,
   },
-  placeholderContainer: {
-    width: VIDEO_WIDTH,
-    height: VIDEO_HEIGHT + 60,
-    backgroundColor: colors.backgroundCard,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.lg,
-  },
-  placeholderAnimation: {
-    width: 200,
-    height: 120,
-    marginBottom: spacing.md,
-  },
-  torsoOutline: {
-    flex: 1,
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    position: "relative",
-  },
-  bellyButton: {
-    position: "absolute",
-    left: "40%",
-    top: "30%",
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.accentDim,
-    borderWidth: 2,
-    borderColor: colors.accent,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  arrowContainer: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-  },
-  arrowText: {
-    fontSize: 24,
-    color: colors.accent,
-  },
-  lrqMarker: {
-    position: "absolute",
-    right: "20%",
-    bottom: "20%",
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.success + "30",
-    borderWidth: 2,
-    borderColor: colors.success,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  markerLabel: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-  },
-  placeholderTitle: {
-    fontSize: typography.sizes.base,
-    fontWeight: typography.weights.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  placeholderText: {
-    fontSize: typography.sizes.sm,
-    color: colors.textMuted,
-    marginBottom: spacing.md,
-  },
-  playButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
-  },
-  playText: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.semibold,
-    color: colors.background,
-    marginLeft: spacing.sm,
-  },
   keyPoints: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   keyPoint: {
     flexDirection: "row",
@@ -438,27 +543,25 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   keyPointNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: colors.accentDim,
     color: colors.accent,
-    fontSize: typography.sizes.sm,
+    fontSize: typography.sizes.xs,
     fontWeight: typography.weights.bold,
     textAlign: "center",
-    lineHeight: 24,
-    marginRight: spacing.md,
+    lineHeight: 22,
+    marginRight: spacing.sm,
   },
   keyPointText: {
-    fontSize: typography.sizes.base,
+    fontSize: typography.sizes.sm,
     color: colors.textPrimary,
     flex: 1,
   },
   buttonContainer: {
     flexDirection: "row",
     gap: spacing.md,
-    marginTop: "auto",
-    paddingBottom: spacing.xl,
   },
   skipButton: {
     flex: 1,
@@ -469,21 +572,21 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   skipButtonText: {
-    fontSize: typography.sizes.base,
+    fontSize: typography.sizes.sm,
     color: colors.textSecondary,
   },
   continueButton: {
-    flex: 1,
+    flex: 2,
     paddingVertical: spacing.base,
     alignItems: "center",
     borderRadius: radius.md,
     backgroundColor: colors.accent,
   },
   continueButtonFull: {
-    flex: 2,
+    flex: 1,
   },
   continueButtonText: {
-    fontSize: typography.sizes.base,
+    fontSize: typography.sizes.sm,
     fontWeight: typography.weights.semibold,
     color: colors.background,
   },

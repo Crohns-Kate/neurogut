@@ -32,6 +32,8 @@ export interface VagalReadinessScore {
   score: number;
   /** Category based on score */
   category: VagalReadinessCategory;
+  /** Whether the recording is incomplete (< 30 seconds) */
+  isIncomplete?: boolean;
   /** Component scores */
   components: {
     /** Current vs 7-day baseline component (0-100) */
@@ -259,6 +261,10 @@ export async function calculateVagalReadinessScore(
     return null;
   }
 
+  // VRS VALIDATION: If recording is less than 30 seconds, mark as incomplete
+  const MIN_RECORDING_DURATION = 30; // seconds
+  const isIncomplete = session.durationSeconds < MIN_RECORDING_DURATION;
+
   // 1. Calculate 7-day baseline
   const baseline = await calculate7DayBaseline(patientId);
   const currentMotility = session.analytics.motilityIndex;
@@ -323,13 +329,20 @@ export async function calculateVagalReadinessScore(
     changeFromBaseline: Math.round(changeFromBaseline),
     baselineSessionCount: baseline.sessionCount,
     calculatedAt: new Date().toISOString(),
+    isIncomplete, // Flag for UI to show "Incomplete" status when < 30 seconds
   };
 }
 
 /**
  * Get category label for UI display
  */
-export function getVagalReadinessCategoryLabel(category: VagalReadinessCategory): string {
+export function getVagalReadinessCategoryLabel(
+  category: VagalReadinessCategory,
+  isIncomplete?: boolean
+): string {
+  if (isIncomplete) {
+    return "Incomplete";
+  }
   switch (category) {
     case "excellent":
       return "Excellent";
@@ -461,6 +474,10 @@ export function generateDailyInsightWithHealth(
  * Generate insight message based on Vagal Readiness Score
  */
 export function generateVagalReadinessInsight(score: VagalReadinessScore): string {
+  // VRS VALIDATION: If recording is incomplete (< 30 seconds), show special message
+  if (score.isIncomplete) {
+    return "Recording was too short (< 30 seconds) to calculate an accurate Vagal Readiness Score. Please record for at least 30 seconds for reliable analysis.";
+  }
   const { category, changeFromBaseline, components } = score;
 
   if (category === "excellent") {
