@@ -13,6 +13,13 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_1e37af9a7f1ea4f
 const CHARLOTTE_VOICE_ID = 'XB0fDUnXU5powFXDhCwa'; // Charlotte
 
 const SCRIPT_SEGMENTS = [
+  // Welcome walkthrough (for offline clinic use)
+  {
+    id: 'welcome_intro',
+    text: "Welcome to Neurogut. Let's begin your daily gut-brain wellness check-in. This will only take a few minutes.",
+    duration: 6000,
+  },
+  // Placement tutorial
   {
     id: 'intro',
     text: "Let's learn how to position your phone for accurate gut sound recording.",
@@ -36,6 +43,22 @@ const SCRIPT_SEGMENTS = [
   {
     id: 'outro',
     text: "Perfect! Hold this position during your recording session. Stay still and relaxed for the best results.",
+    duration: 5000,
+  },
+  // Breathing & intervention guides
+  {
+    id: 'breathing_478_intro',
+    text: "We'll now guide you through the 4-7-8 breathing technique. This helps activate your vagus nerve and promotes calm.",
+    duration: 5000,
+  },
+  {
+    id: 'breathing_478_guide',
+    text: "Breathe in through your nose for 4 seconds. Hold your breath for 7 seconds. Exhale slowly through your mouth for 8 seconds.",
+    duration: 8000,
+  },
+  {
+    id: 'session_complete',
+    text: "Your session is complete. Great work today. Remember, consistency is key for tracking your gut-brain wellness.",
     duration: 5000,
   },
 ];

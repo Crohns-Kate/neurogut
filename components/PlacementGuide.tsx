@@ -45,6 +45,7 @@ const SIGNAL_CHECK_DURATION = 5000; // 5 seconds
 
 /**
  * Professional dark-mode anatomical mirror - realistic torso silhouette
+ * NON-MIRRORED VIEW: User's right side appears on LEFT of screen
  */
 const AnatomicalMirror = memo(function AnatomicalMirror() {
   return (
@@ -427,10 +428,32 @@ export default function PlacementGuide({
       {/* Step 1: Locate LRQ - Professional Anatomical Mirror */}
       {step === 1 && (
         <View style={styles.svgContainer}>
+          {/* YOUR RIGHT SIDE label - Left edge (user's right = screen left) */}
+          <View style={styles.sideLabel}>
+            <View style={[styles.sideLabelBox, styles.sideLabelRight]}>
+              <Text style={styles.sideLabelArrow}>→</Text>
+              <Text style={styles.sideLabelText}>YOUR{'\n'}RIGHT</Text>
+            </View>
+          </View>
+
+          {/* YOUR LEFT SIDE label - Right edge */}
+          <View style={styles.sideLabelLeft}>
+            <View style={[styles.sideLabelBox, styles.sideLabelLeftBox]}>
+              <Text style={styles.sideLabelText}>YOUR{'\n'}LEFT</Text>
+              <Text style={styles.sideLabelArrow}>←</Text>
+            </View>
+          </View>
+
           <Svg width={300} height={400} viewBox="0 0 300 400">
             <AnatomicalMirror />
             <TargetRingSVG />
           </Svg>
+
+          {/* LRQ Target label */}
+          <View style={styles.lrqLabel}>
+            <Text style={styles.lrqLabelText}>LRQ Target</Text>
+            <Text style={styles.lrqLabelSubtext}>(Your Right Side)</Text>
+          </View>
 
           {/* Pulsing teal target ring overlay */}
           <Animated.View
@@ -667,6 +690,64 @@ const styles = StyleSheet.create({
   svgContainer: {
     position: "relative",
     marginBottom: spacing.xl,
+  },
+  sideLabel: {
+    position: "absolute",
+    left: -60,
+    top: 180,
+    zIndex: 10,
+  },
+  sideLabelLeft: {
+    position: "absolute",
+    right: -60,
+    top: 180,
+    zIndex: 10,
+  },
+  sideLabelBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    gap: 4,
+  },
+  sideLabelRight: {
+    backgroundColor: colors.accent + "30",
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  sideLabelLeftBox: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  sideLabelText: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    textAlign: "center",
+    lineHeight: 12,
+  },
+  sideLabelArrow: {
+    fontSize: 14,
+    color: colors.accent,
+    fontWeight: typography.weights.bold,
+  },
+  lrqLabel: {
+    position: "absolute",
+    left: LRQ_CENTER.x - 40,
+    top: LRQ_CENTER.y + 45,
+    alignItems: "center",
+  },
+  lrqLabelText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.accent,
+  },
+  lrqLabelSubtext: {
+    fontSize: typography.sizes.xs,
+    color: colors.textMuted,
+    marginTop: 2,
   },
   targetPulse: {
     position: "absolute",

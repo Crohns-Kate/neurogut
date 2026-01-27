@@ -2,6 +2,11 @@
   "voice": "Charlotte (Australian)",
   "segments": [
     {
+      "id": "welcome_intro",
+      "text": "Welcome to Neurogut. Let's begin your daily gut-brain wellness check-in. This will only take a few minutes.",
+      "duration": 6000
+    },
+    {
       "id": "intro",
       "text": "Let's learn how to position your phone for accurate gut sound recording.",
       "duration": 4000
@@ -25,7 +30,22 @@
       "id": "outro",
       "text": "Perfect! Hold this position during your recording session. Stay still and relaxed for the best results.",
       "duration": 5000
+    },
+    {
+      "id": "breathing_478_intro",
+      "text": "We'll now guide you through the 4-7-8 breathing technique. This helps activate your vagus nerve and promotes calm.",
+      "duration": 5000
+    },
+    {
+      "id": "breathing_478_guide",
+      "text": "Breathe in through your nose for 4 seconds. Hold your breath for 7 seconds. Exhale slowly through your mouth for 8 seconds.",
+      "duration": 8000
+    },
+    {
+      "id": "session_complete",
+      "text": "Your session is complete. Great work today. Remember, consistency is key for tracking your gut-brain wellness.",
+      "duration": 5000
     }
   ],
-  "totalDuration": 27000
+  "totalDuration": 51000
 }

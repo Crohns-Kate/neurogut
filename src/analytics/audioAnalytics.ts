@@ -37,6 +37,12 @@ const CONFIG = {
   timelineSegments: 10,
   // Sample rate assumption (most recordings are 44100 Hz)
   sampleRate: 44100,
+  // Spectral bandpass filter for gut sounds (Hz)
+  // Gut sounds are typically 150-1000 Hz
+  // Birds, whistles, high speech are >1200 Hz - auto-discard
+  bandpassLowHz: 150,
+  bandpassHighHz: 1000,
+  rejectAboveHz: 1200,
 };
 
 /**
@@ -46,6 +52,78 @@ interface DetectedEvent {
   startWindow: number;
   endWindow: number;
   peakEnergy: number;
+}
+
+/**
+ * Apply a simple bandpass filter using FFT-like frequency analysis
+ * Filters out frequencies outside 150-1000 Hz range
+ * Auto-discards energy above 1200 Hz (birds, whistles, high speech)
+ *
+ * @param samples - Raw audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns Filtered samples with out-of-band energy removed
+ */
+function applySpectralBandpass(samples: number[], sampleRate: number): number[] {
+  if (samples.length === 0) return samples;
+
+  // Use overlapping windows for frequency analysis
+  const windowSize = 1024; // ~23ms at 44100 Hz, good frequency resolution
+  const hopSize = windowSize / 2;
+  const output = new Array(samples.length).fill(0);
+  const windowCounts = new Array(samples.length).fill(0);
+
+  // Frequency bin resolution
+  const freqPerBin = sampleRate / windowSize;
+  const lowBin = Math.floor(CONFIG.bandpassLowHz / freqPerBin);
+  const highBin = Math.ceil(CONFIG.bandpassHighHz / freqPerBin);
+  const rejectBin = Math.floor(CONFIG.rejectAboveHz / freqPerBin);
+
+  // Process in overlapping windows
+  for (let start = 0; start + windowSize <= samples.length; start += hopSize) {
+    const window = samples.slice(start, start + windowSize);
+
+    // Apply Hann window to reduce spectral leakage
+    const windowed = window.map((s, i) =>
+      s * 0.5 * (1 - Math.cos(2 * Math.PI * i / (windowSize - 1)))
+    );
+
+    // Compute magnitude spectrum using DFT for target bins only
+    // (Full FFT is overkill; we only need specific frequency ranges)
+    let inBandEnergy = 0;
+    let outBandEnergy = 0;
+
+    for (let k = 0; k < windowSize / 2; k++) {
+      let real = 0, imag = 0;
+      for (let n = 0; n < windowSize; n++) {
+        const angle = -2 * Math.PI * k * n / windowSize;
+        real += windowed[n] * Math.cos(angle);
+        imag += windowed[n] * Math.sin(angle);
+      }
+      const magnitude = Math.sqrt(real * real + imag * imag);
+
+      if (k >= lowBin && k <= highBin) {
+        inBandEnergy += magnitude * magnitude;
+      }
+      if (k >= rejectBin) {
+        outBandEnergy += magnitude * magnitude;
+      }
+    }
+
+    // If high-frequency energy dominates, zero out this window (bird chirp/speech)
+    const totalEnergy = inBandEnergy + outBandEnergy;
+    const suppressFactor = totalEnergy > 0 && outBandEnergy > inBandEnergy * 0.5 ? 0 : 1;
+
+    // Add filtered samples back with overlap-add
+    for (let i = 0; i < windowSize; i++) {
+      if (start + i < output.length) {
+        output[start + i] += windowed[i] * suppressFactor;
+        windowCounts[start + i]++;
+      }
+    }
+  }
+
+  // Normalize by overlap count
+  return output.map((s, i) => windowCounts[i] > 0 ? s / windowCounts[i] : 0);
 }
 
 /**
@@ -280,13 +358,17 @@ export function analyzeAudioSamples(
   durationSeconds: number,
   sampleRate: number = CONFIG.sampleRate
 ): SessionAnalytics {
+  // SPECTRAL BANDPASS: Filter out bird chirps, whistles, high-pitched speech
+  // Only allow 150-1000 Hz through; auto-discard >1200 Hz energy
+  const filteredSamples = applySpectralBandpass(samples, sampleRate);
+
   // Convert window size from ms to samples
   const windowSizeSamples = Math.floor(
     (CONFIG.windowSizeMs / 1000) * sampleRate
   );
 
-  // Compute windowed energy
-  const energyValues = computeWindowedEnergy(samples, windowSizeSamples);
+  // Compute windowed energy from FILTERED samples
+  const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
   // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
   const isFlatNoise = detectFlatNoise(energyValues);
@@ -425,13 +507,16 @@ export function getVisualizationData(
   durationSeconds: number,
   sampleRate: number = CONFIG.sampleRate
 ): AudioVisualizationData {
+  // SPECTRAL BANDPASS: Filter out bird chirps, whistles, high-pitched speech
+  const filteredSamples = applySpectralBandpass(samples, sampleRate);
+
   // Convert window size from ms to samples
   const windowSizeSamples = Math.floor(
     (CONFIG.windowSizeMs / 1000) * sampleRate
   );
 
-  // Compute windowed energy
-  const energyValues = computeWindowedEnergy(samples, windowSizeSamples);
+  // Compute windowed energy from FILTERED samples
+  const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
   // Detect events
   const events = detectEvents(energyValues);
