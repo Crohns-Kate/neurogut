@@ -20,7 +20,7 @@
  */
 
 import { SessionAnalytics } from "../models/session";
-import { MOTILITY_THRESHOLD_MULTIPLIER } from "../logic/audioProcessor";
+import { MOTILITY_THRESHOLD_MULTIPLIER, MIN_SKIN_CONTACT_RMS } from "../logic/audioProcessor";
 
 // Configuration for event detection
 const CONFIG = {
@@ -315,52 +315,109 @@ function calculateMotilityIndex(
 }
 
 /**
- * Detect flat noise (lack of muffled quality indicating no skin contact)
- * 
- * Skin contact creates a "muffled" quality due to:
- * - Damping of high frequencies by tissue
- * - Increased low-frequency content
- * - Reduced dynamic range
- * 
- * Flat noise (phone on table) has:
- * - High coefficient of variation (CV) in energy (room hum variations)
- * - But very low overall energy variance
- * - No characteristic muffling pattern
- * 
+ * Detect lack of skin contact through multiple heuristics:
+ *
+ * 1. MINIMUM ENERGY: Phone on abdomen with proper skin contact creates
+ *    higher baseline energy due to acoustic coupling with body.
+ *    Very low energy indicates phone is in air or on hard surface.
+ *
+ * 2. FLAT NOISE: Consistent background hum without variation patterns
+ *    expected from gut sounds. Skin contact creates a "muffled" quality with:
+ *    - Damping of high frequencies by tissue
+ *    - Increased low-frequency content
+ *    - Characteristic bursts from gut activity
+ *
+ * 3. EXCESSIVE LOW VARIANCE: If energy varies very little, the phone
+ *    is likely not picking up gut sounds (which naturally vary).
+ *
  * @param energyValues - Windowed RMS energy values
- * @returns true if flat noise detected (no skin contact)
+ * @returns true if no skin contact detected (should report 0 events)
  */
-function detectFlatNoise(energyValues: number[]): boolean {
+function detectNoSkinContact(energyValues: number[]): boolean {
   if (energyValues.length < 10) return false;
 
   const avgEnergy = mean(energyValues);
   const energyStdDev = stdDev(energyValues);
-  
-  // Coefficient of variation (CV) = stdDev / mean
-  // Flat noise has very low CV (< 0.08) - consistent background hum
+
+  // CHECK 1: Minimum energy threshold
+  // Phone on skin should have baseline RMS above MIN_SKIN_CONTACT_RMS
+  // If average energy is below this, phone is likely in air or on table
+  if (avgEnergy < MIN_SKIN_CONTACT_RMS) {
+    return true;
+  }
+
+  // CHECK 2: Coefficient of variation (CV) = stdDev / mean
+  // Flat noise has very low CV (< 0.10) - consistent background hum
+  // Gut sounds should have more variance (CV > 0.10)
   const cv = avgEnergy > 0 ? energyStdDev / avgEnergy : 0;
-  
-  // Also check for lack of muffling: skin contact should have more variation
-  // If CV is too low AND energy is very consistent, it's likely flat noise
-  return cv < 0.08 && energyStdDev < avgEnergy * 0.05;
+
+  // CHECK 3: Very low standard deviation relative to mean
+  // Gut sounds have bursts; flat noise is consistent
+  const hasLowVariance = energyStdDev < avgEnergy * 0.08;
+
+  // If CV is too low AND variance is low, it's likely flat noise (no contact)
+  return cv < 0.10 && hasLowVariance;
+}
+
+/**
+ * Analysis options for controlling filter behavior
+ */
+export interface AnalysisOptions {
+  /**
+   * Whether to apply the spectral bandpass filter (150-1000 Hz)
+   * Set to true for motility recording phase (filters birds, whistles)
+   * Set to false for humming/primer phase (allows 100-300 Hz humming)
+   * Default: true
+   */
+  applyBirdFilter?: boolean;
+
+  /**
+   * Whether this is a humming/primer phase recording
+   * If true, uses wider frequency band (80-500 Hz) for humming detection
+   * Default: false
+   */
+  isHummingPhase?: boolean;
 }
 
 /**
  * Analyze audio samples and compute session analytics
  *
+ * BIRD FILTER GUARDRAILS:
+ * - The 150Hz-1000Hz bandpass filter is ONLY active during the final 30-second
+ *   motility recording phase, NOT during the humming primer phase.
+ * - During humming, the filter is bypassed to allow detection of humming
+ *   frequencies (100-300 Hz range).
+ *
  * @param samples - Raw audio samples (normalized to -1 to 1 range)
  * @param durationSeconds - Total recording duration in seconds
  * @param sampleRate - Audio sample rate (default 44100)
+ * @param options - Analysis options controlling filter behavior
  * @returns SessionAnalytics object with computed metrics
  */
 export function analyzeAudioSamples(
   samples: number[],
   durationSeconds: number,
-  sampleRate: number = CONFIG.sampleRate
+  sampleRate: number = CONFIG.sampleRate,
+  options: AnalysisOptions = {}
 ): SessionAnalytics {
-  // SPECTRAL BANDPASS: Filter out bird chirps, whistles, high-pitched speech
-  // Only allow 150-1000 Hz through; auto-discard >1200 Hz energy
-  const filteredSamples = applySpectralBandpass(samples, sampleRate);
+  const { applyBirdFilter = true, isHummingPhase = false } = options;
+
+  // BIRD FILTER GUARDRAILS:
+  // - Only apply spectral bandpass during motility recording phase
+  // - During humming phase, skip the bird filter entirely
+  let filteredSamples: number[];
+
+  if (isHummingPhase) {
+    // HUMMING PHASE: No bird filter, raw samples used for humming detection
+    filteredSamples = samples;
+  } else if (applyBirdFilter) {
+    // MOTILITY PHASE: Apply spectral bandpass (150-1000 Hz)
+    // Filters out bird chirps, whistles, high-pitched speech
+    filteredSamples = applySpectralBandpass(samples, sampleRate);
+  } else {
+    // Bird filter disabled explicitly
+    filteredSamples = samples;
+  }
 
   // Convert window size from ms to samples
   const windowSizeSamples = Math.floor(
@@ -497,18 +554,34 @@ export interface AudioVisualizationData {
  * returns the raw energy values and event data needed for visualization.
  * Use this when you need to render a detailed waveform with event markers.
  *
+ * BIRD FILTER GUARDRAILS:
+ * - Same filtering logic as analyzeAudioSamples()
+ * - Only applies bandpass during motility phase, not humming phase
+ *
  * @param samples - Raw audio samples (normalized to -1 to 1 range)
  * @param durationSeconds - Total recording duration in seconds
  * @param sampleRate - Audio sample rate (default 44100)
+ * @param options - Analysis options controlling filter behavior
  * @returns AudioVisualizationData with energy values and events
  */
 export function getVisualizationData(
   samples: number[],
   durationSeconds: number,
-  sampleRate: number = CONFIG.sampleRate
+  sampleRate: number = CONFIG.sampleRate,
+  options: AnalysisOptions = {}
 ): AudioVisualizationData {
-  // SPECTRAL BANDPASS: Filter out bird chirps, whistles, high-pitched speech
-  const filteredSamples = applySpectralBandpass(samples, sampleRate);
+  const { applyBirdFilter = true, isHummingPhase = false } = options;
+
+  // Apply same filtering logic as analyzeAudioSamples
+  let filteredSamples: number[];
+
+  if (isHummingPhase) {
+    filteredSamples = samples;
+  } else if (applyBirdFilter) {
+    filteredSamples = applySpectralBandpass(samples, sampleRate);
+  } else {
+    filteredSamples = samples;
+  }
 
   // Convert window size from ms to samples
   const windowSizeSamples = Math.floor(

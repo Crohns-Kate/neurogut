@@ -43,3 +43,10 @@ yarn-error.*
 # IDE
 .vscode/
 .idea/
+
+# local agent/config
+.claude/settings.local.json
+
+# local tooling and assets (not for repo)
+local-video-promo-generator/
+pitch-assets/

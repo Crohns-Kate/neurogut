@@ -25,7 +25,7 @@ import {
   MEAL_TIMING_OPTIONS,
   PostureType,
   POSTURE_OPTIONS,
-  SessionContext,
+  SessionContext as SessionContextType,
   DEFAULT_SESSION_CONTEXT,
   createSession,
   StateOfMind,
@@ -37,6 +37,7 @@ import { addSession, updateSessionAnalytics } from "../src/storage/sessionStore"
 import { generatePlaceholderAnalytics } from "../src/analytics/audioAnalytics";
 import AnatomicalMirror from "../components/AnatomicalMirror";
 import PlacementGuide from "../components/PlacementGuide";
+import VagalPrimer from "../components/VagalPrimer";
 import {
   loadAllPatients,
   getActivePatient,
@@ -44,6 +45,7 @@ import {
   createAndAddPatient,
   PatientProfile,
 } from "../src/storage/patientStore";
+import { useSession, requiresPrimer, getModeLabel } from "../src/context/SessionContext";
 
 type SavedRecording = {
   id: string;
@@ -520,7 +522,13 @@ export default function GutSoundRecordingScreen() {
   // Protocol and context state
   const [selectedProtocol, setSelectedProtocol] =
     useState<RecordingProtocolType>("quick_check");
-  const [context, setContext] = useState<SessionContext>(DEFAULT_SESSION_CONTEXT);
+  const [context, setContext] = useState<SessionContextType>(DEFAULT_SESSION_CONTEXT);
+
+  // Session flow context (prevents state loops)
+  const sessionContext = useSession();
+
+  // VagalPrimer modal state
+  const [showVagalPrimer, setShowVagalPrimer] = useState(false);
   
   // Patient profile state
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -657,14 +665,20 @@ export default function GutSoundRecordingScreen() {
   }, []);
 
   const handleCreatePatient = useCallback(async () => {
-    if (!newPatientName.trim()) {
-      Alert.alert("Error", "Please enter a patient name or code");
+    // Patient Code is required, Full Name is optional
+    if (!newPatientCode.trim()) {
+      Alert.alert("Error", "Please enter a patient code (e.g., GC-101)");
       return;
     }
     try {
-      const p = await createAndAddPatient(newPatientName.trim());
+      // Use code as the primary identifier, with optional name
+      const patientIdentifier = newPatientName.trim()
+        ? `${newPatientName.trim()} (${newPatientCode.trim()})`
+        : newPatientCode.trim();
+      const p = await createAndAddPatient(patientIdentifier);
       await setActivePatientId(p.id);
       setActivePatientIdState(p.id);
+      setNewPatientCode("");
       setNewPatientName("");
       setShowPatientModal(false);
       await loadPatients();
@@ -672,7 +686,7 @@ export default function GutSoundRecordingScreen() {
       console.error("Error creating patient:", e);
       Alert.alert("Error", "Failed to create patient profile");
     }
-  }, [newPatientName, loadPatients]);
+  }, [newPatientCode, newPatientName, loadPatients]);
 
   useEffect(() => {
     loadRecordings();
@@ -1334,12 +1348,43 @@ export default function GutSoundRecordingScreen() {
       setShowPatientModal(true);
       return;
     }
+
+    // Determine the recording mode based on intervention
+    const intervention = context.intervention || "None";
+    const mode = intervention === "None" ? "standard" :
+                 intervention === "Humming" ? "humming" :
+                 intervention === "Deep Breathing" ? "deep_breathing" :
+                 intervention === "Cold Exposure" ? "cold_exposure" :
+                 intervention === "Gargling" ? "gargling" : "standard";
+
+    // Start session and lock the track (prevents mode changes mid-session)
+    sessionContext.startSession(mode, intervention !== "None" ? intervention : undefined);
+
     // Show PlacementGuide wizard first
     setShowPlacementGuide(true);
     setPlacementStep(1);
     setStep1Completed(false);
     setStep2Completed(false);
     setStep3Completed(false);
+  };
+
+  // Handle VagalPrimer completion
+  const handlePrimerComplete = () => {
+    setShowVagalPrimer(false);
+    sessionContext.completePrimer();
+    sessionContext.setPhase("recording");
+    // Skip signal check after primer - go directly to recording
+    setStep3Completed(true);
+    startRecording();
+  };
+
+  // Handle VagalPrimer skip
+  const handlePrimerSkip = () => {
+    setShowVagalPrimer(false);
+    sessionContext.setPhase("recording");
+    // Skip signal check after primer skip - go directly to recording
+    setStep3Completed(true);
+    startRecording();
   };
 
   // PlacementGuide handlers
@@ -1360,7 +1405,18 @@ export default function GutSoundRecordingScreen() {
             text: "Yes, Pressing Firmly",
             onPress: () => {
               setStep2Completed(true);
-              setPlacementStep(3);
+
+              // Check if we need to show the VagalPrimer (for interventions)
+              const intervention = context.intervention;
+              if (intervention && intervention !== "None" && requiresPrimer(sessionContext.selectedMode)) {
+                // Close PlacementGuide and show VagalPrimer
+                setShowPlacementGuide(false);
+                sessionContext.setPhase("primer");
+                setShowVagalPrimer(true);
+              } else {
+                // Skip primer, go directly to calibration
+                setPlacementStep(3);
+              }
             },
           },
         ]
@@ -1370,6 +1426,7 @@ export default function GutSoundRecordingScreen() {
       if (signalPassed) {
         setStep3Completed(true);
         setShowPlacementGuide(false);
+        sessionContext.setPhase("recording");
         // All checks passed - start recording
         startRecording();
       }
@@ -1614,6 +1671,26 @@ export default function GutSoundRecordingScreen() {
         </Modal>
       )}
 
+      {/* VagalPrimer Modal - Pre-Recording Vagus Nerve Stimulation */}
+      {showVagalPrimer && context.intervention && context.intervention !== "None" && (
+        <Modal
+          visible={showVagalPrimer}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => {
+            // Allow dismissing with back button
+            handlePrimerSkip();
+          }}
+        >
+          <VagalPrimer
+            intervention={context.intervention as "Humming" | "Deep Breathing" | "Gargling" | "Cold Exposure"}
+            onComplete={handlePrimerComplete}
+            onSkip={handlePrimerSkip}
+            showSkip={true}
+          />
+        </Modal>
+      )}
+
       {phase === "setup" && (
         <ScrollView
           style={styles.setupScrollView}
@@ -1678,16 +1755,31 @@ export default function GutSoundRecordingScreen() {
             onSelect={(i) => setContext({ ...context, intervention: i })}
           />
 
+          {/* BEGIN SESSION Button - Large, High-Contrast CTA */}
           <TouchableOpacity
-            style={[styles.startButton, !activePatientId && styles.startButtonDisabled]}
+            style={[styles.beginSessionButton, !activePatientId && styles.beginSessionButtonDisabled]}
             onPress={handleStartRecording}
             activeOpacity={0.8}
             disabled={!activePatientId}
           >
-            <Text style={styles.startButtonIcon}>●</Text>
-            <Text style={styles.startButtonText}>
-              {activePatientId ? "Start Recording" : "Select Patient First"}
-            </Text>
+            <View style={styles.beginSessionContent}>
+              <Text style={styles.beginSessionIcon}>🎙</Text>
+              <View style={styles.beginSessionTextContainer}>
+                <Text style={styles.beginSessionTitle}>
+                  {activePatientId ? "BEGIN SESSION" : "Select Patient First"}
+                </Text>
+                <Text style={styles.beginSessionSubtitle}>
+                  {activePatientId
+                    ? context.intervention && context.intervention !== "None"
+                      ? `${context.intervention} Protocol`
+                      : "Standard Recording"
+                    : "Required before recording"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.beginSessionArrow}>
+              <Text style={styles.beginSessionArrowText}>→</Text>
+            </View>
           </TouchableOpacity>
 
           {permissionStatus === "denied" && (
@@ -2603,10 +2695,11 @@ const styles = StyleSheet.create({
     padding: spacing.base,
     backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 2,
+    borderColor: "#CCCCCC",
     color: "#000000",
     fontSize: typography.sizes.base,
+    minHeight: 50,
   },
   createPatientButton: {
     paddingHorizontal: spacing.lg,
@@ -2615,6 +2708,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: spacing.md,
+    minHeight: 50,
   },
   createPatientButtonText: {
     color: colors.background,
@@ -2734,5 +2829,65 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.base,
     fontWeight: typography.weights.semibold,
     textAlign: "center",
+  },
+  // BEGIN SESSION Button - Large, High-Contrast CTA
+  beginSessionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.xl,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xl,
+    minHeight: 100,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  beginSessionButtonDisabled: {
+    backgroundColor: colors.textMuted,
+    opacity: 0.7,
+    shadowOpacity: 0,
+  },
+  beginSessionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  beginSessionIcon: {
+    fontSize: 40,
+    marginRight: spacing.md,
+  },
+  beginSessionTextContainer: {
+    flex: 1,
+  },
+  beginSessionTitle: {
+    color: colors.background,
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold,
+    letterSpacing: 1,
+    marginBottom: spacing.xs,
+  },
+  beginSessionSubtitle: {
+    color: "rgba(13, 13, 16, 0.7)",
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+  },
+  beginSessionArrow: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  beginSessionArrowText: {
+    color: colors.accent,
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold,
   },
 });

@@ -9,7 +9,16 @@
  */
 
 /** RMS threshold multiplier for event detection. Higher = less sensitive to ambient noise. */
-export const MOTILITY_THRESHOLD_MULTIPLIER = 2.2;
+export const MOTILITY_THRESHOLD_MULTIPLIER = 2.5;
 
 /** Max coefficient-of-variation of energy (std/mean) below which we consider noise "flat" (no skin contact). */
 export const FLAT_NOISE_CV_THRESHOLD = 0.08;
+
+/**
+ * Minimum RMS energy threshold for skin contact detection.
+ * Phone on abdomen with skin contact typically has higher baseline energy
+ * due to the muffled acoustic coupling.
+ * Values below this indicate phone is not properly placed on skin.
+ * Normalized to 0-1 range where typical skin-contact RMS is 0.01-0.1
+ */
+export const MIN_SKIN_CONTACT_RMS = 0.005;
