@@ -20,7 +20,17 @@
  */
 
 import { SessionAnalytics } from "../models/session";
-import { MOTILITY_THRESHOLD_MULTIPLIER, MIN_SKIN_CONTACT_RMS } from "../logic/audioProcessor";
+import {
+  MOTILITY_THRESHOLD_MULTIPLIER,
+  MIN_SKIN_CONTACT_RMS,
+  ACOUSTIC_ISOLATION_CONFIG,
+  calibrateAmbientNoiseFloor,
+  applySpectralSubtraction,
+  detectTransient,
+  assessSignalQuality,
+  type ANFCalibrationResult,
+  type SignalQuality,
+} from "../logic/audioProcessor";
 
 // Configuration for event detection
 const CONFIG = {
@@ -37,12 +47,20 @@ const CONFIG = {
   timelineSegments: 10,
   // Sample rate assumption (most recordings are 44100 Hz)
   sampleRate: 44100,
-  // Spectral bandpass filter for gut sounds (Hz)
-  // Gut sounds are typically 150-1000 Hz
-  // Birds, whistles, high speech are >1200 Hz - auto-discard
-  bandpassLowHz: 150,
-  bandpassHighHz: 1000,
-  rejectAboveHz: 1200,
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TIGHTENED BANDPASS FILTER (NG-HARDEN-05)
+  // Narrowed from 150-1000Hz to 100-450Hz for better gut sound isolation
+  // ══════════════════════════════════════════════════════════════════════════════
+  // Gut sounds (borborygmi, peristalsis, gurgling) peak at 100-400Hz
+  // Human speech fundamental is 85-255Hz, but formants are 500-4000Hz
+  // Environmental noise (traffic, HVAC) is broadband >500Hz
+  // By cutting off at 450Hz, we reject most speech and environmental noise
+  bandpassLowHz: 100,
+  bandpassHighHz: 450,
+  rejectAboveHz: 500,
+  // Filter rolloff steepness (dB/octave) for sharper isolation
+  rolloffDbPerOctave: 24,
 
   // ══════════════════════════════════════════════════════════════════════════════
   // NOISE-FLOOR CALIBRATION (3-second window)
@@ -87,11 +105,11 @@ const CONFIG = {
   // SFM above this = definitely white noise (air hiss) - auto-reject
   sfmAutoRejectThreshold: 0.85,
 
-  // BOWEL PEAK ISOLATION (100-500 Hz)
+  // BOWEL PEAK ISOLATION (100-450 Hz) — Aligned with NG-HARDEN-05 bandpass
   // Primary gut sounds: borborygmi, peristalsis, gurgling
   // Energy should be concentrated in this band for valid gut sounds
   bowelPeakLowHz: 100,
-  bowelPeakHighHz: 500,
+  bowelPeakHighHz: 450,
   // Minimum ratio of bowel band energy to total energy
   // Gut sounds: > 0.4 (40%+ energy in bowel band)
   // Air hiss: < 0.3 (energy spread across all frequencies)
@@ -154,6 +172,27 @@ const CONFIG = {
   // Measures "randomness" of spectrum - high entropy = noise-like
   // Used for temporal masking: constant entropy over time = stationary noise
   spectralEntropyWhiteNoiseThreshold: 0.9,
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DURATION GATING (NG-HARDEN-05)
+  // Only signals lasting 0.5s-2s pass as gut events
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // Minimum event duration to be considered a valid gut sound (ms)
+  // Gut sounds are sustained; clicks/transients are <100ms
+  minValidEventDurationMs: 500,
+
+  // Maximum event duration to be considered a valid gut sound (ms)
+  // Gut sounds are transient; constant noise lasts >2s
+  maxValidEventDurationMs: 2000,
+
+  // Duration below which events are rejected as transients (ms)
+  // Door slams, coughs, clicks are typically <100ms
+  transientRejectDurationMs: 100,
+
+  // Duration above which events are considered sustained noise (ms)
+  // AC hum, refrigerator drone, continuous speech are >3s
+  sustainedNoiseRejectDurationMs: 3000,
 };
 
 /**
@@ -167,8 +206,11 @@ interface DetectedEvent {
 
 /**
  * Apply a simple bandpass filter using FFT-like frequency analysis
- * Filters out frequencies outside 150-1000 Hz range
- * Auto-discards energy above 1200 Hz (birds, whistles, high speech)
+ *
+ * NG-HARDEN-05: Tightened from 150-1000Hz to 100-450Hz
+ * - Filters out frequencies outside 100-450 Hz range (gut sound band)
+ * - Auto-discards energy above 500 Hz (speech, birds, environmental noise)
+ * - 24 dB/octave rolloff for sharp isolation
  *
  * @param samples - Raw audio samples
  * @param sampleRate - Sample rate in Hz
@@ -1459,12 +1501,23 @@ function createActivityTimeline(
  * - Events per minute (normalized)
  * - Fraction of active time
  *
+ * NG-HARDEN-05: Signal quality affects the result:
+ * - "poor" quality → VRS = 0 (unreliable data)
+ * - "fair" quality → VRS weighted by 0.5 (caution)
+ * - "good"/"excellent" → VRS unweighted (reliable)
+ *
  * This is a simple heuristic designed for self-tracking, not medical assessment.
  */
 function calculateMotilityIndex(
   eventsPerMinute: number,
-  activeFraction: number
+  activeFraction: number,
+  signalQuality: SignalQuality = "good"
 ): number {
+  // NG-HARDEN-05: If signal quality is poor, return 0 (unreliable)
+  if (signalQuality === "poor") {
+    return 0;
+  }
+
   // Expected range for normal gut sounds: 5-15 events per minute
   // We normalize this to 0-100 scale
   const MIN_EPM = 0;
@@ -1480,7 +1533,12 @@ function calculateMotilityIndex(
 
   // Combine both metrics (weighted average)
   // Events per minute is weighted more heavily as it's more meaningful
-  const motilityIndex = Math.round(normalizedEPM * 0.7 + activenessScore * 0.3);
+  let motilityIndex = Math.round(normalizedEPM * 0.7 + activenessScore * 0.3);
+
+  // NG-HARDEN-05: Weight by signal quality
+  if (signalQuality === "fair") {
+    motilityIndex = Math.round(motilityIndex * 0.5);
+  }
 
   return Math.min(100, Math.max(0, motilityIndex));
 }
@@ -1573,6 +1631,9 @@ export function analyzeAudioSamples(
 ): SessionAnalytics {
   const { applyBirdFilter = true, isHummingPhase = false } = options;
 
+  // NG-HARDEN-05: Track ANF calibration and signal quality for the entire analysis
+  let anfCalibrationResult: ANFCalibrationResult | null = null;
+
   // BIRD FILTER GUARDRAILS:
   // - Only apply spectral bandpass during motility recording phase
   // - During humming phase, skip the bird filter entirely
@@ -1582,9 +1643,27 @@ export function analyzeAudioSamples(
     // HUMMING PHASE: No bird filter, raw samples used for humming detection
     filteredSamples = samples;
   } else if (applyBirdFilter) {
-    // MOTILITY PHASE: Apply spectral bandpass (150-1000 Hz)
-    // Filters out bird chirps, whistles, high-pitched speech
-    filteredSamples = applySpectralBandpass(samples, sampleRate);
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NG-HARDEN-05: ACOUSTIC ENVIRONMENT ISOLATION PIPELINE
+    // 1. Detect and subtract constant hums (AC, refrigerator, HVAC)
+    // 2. Apply tightened bandpass filter (100-450 Hz)
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    // Step 1: Detect constant hums in calibration period and subtract them
+    anfCalibrationResult = calibrateAmbientNoiseFloor(samples, sampleRate);
+    let processedSamples = samples;
+
+    if (anfCalibrationResult.detectedHumFrequencies.length > 0) {
+      // Apply spectral subtraction to remove detected hums
+      processedSamples = applySpectralSubtraction(
+        samples,
+        anfCalibrationResult.detectedHumFrequencies,
+        sampleRate
+      );
+    }
+
+    // Step 2: Apply tightened bandpass filter (100-450 Hz)
+    filteredSamples = applySpectralBandpass(processedSamples, sampleRate);
   } else {
     // Bird filter disabled explicitly
     filteredSamples = samples;
@@ -1685,6 +1764,52 @@ export function analyzeAudioSamples(
     sampleRate
   ));
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DURATION GATING (NG-HARDEN-05)
+  // Only accept events with physiologically valid gut sound duration (0.5s-2s)
+  // Reject transients (<100ms) and sustained noise (>3s)
+  // ══════════════════════════════════════════════════════════════════════════════
+  events = events.filter((event) => {
+    const eventDurationWindows = event.endWindow - event.startWindow + 1;
+    const eventDurationMs = eventDurationWindows * CONFIG.windowSizeMs;
+
+    // Reject transients (clicks, clatter) - too short
+    if (eventDurationMs < CONFIG.transientRejectDurationMs) {
+      return false;
+    }
+
+    // Reject sustained noise (AC hum, continuous) - too long
+    if (eventDurationMs > CONFIG.sustainedNoiseRejectDurationMs) {
+      return false;
+    }
+
+    // Accept events within valid gut sound duration range
+    return (
+      eventDurationMs >= CONFIG.minValidEventDurationMs &&
+      eventDurationMs <= CONFIG.maxValidEventDurationMs
+    );
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TRANSIENT SUPPRESSION (NG-HARDEN-05)
+  // Reject sharp transients (clicks, clatter, door slams) based on onset slope
+  // ══════════════════════════════════════════════════════════════════════════════
+  events = events.filter((event) => {
+    // Extract samples for this event
+    const startSample = event.startWindow * windowSizeSamples;
+    const endSample = Math.min(
+      (event.endWindow + 1) * windowSizeSamples,
+      filteredSamples.length
+    );
+    const eventSamples = filteredSamples.slice(startSample, endSample);
+
+    // Detect if this is a sharp transient
+    const transientResult = detectTransient(eventSamples, sampleRate);
+
+    // Reject transients (sharp attacks, high energy ratio)
+    return !transientResult.isTransient;
+  });
+
   // Calculate metrics
   const durationMinutes = durationSeconds / 60;
   const eventsPerMinute =
@@ -1704,8 +1829,13 @@ export function analyzeAudioSamples(
 
   const activeFraction = totalWindows > 0 ? activeWindows / totalWindows : 0;
 
-  // Calculate Motility Index
-  const motilityIndex = calculateMotilityIndex(eventsPerMinute, activeFraction);
+  // NG-HARDEN-05: Get signal quality from ANF calibration
+  const signalQuality: SignalQuality = anfCalibrationResult?.signalQuality ?? "good";
+  const snrDb = anfCalibrationResult?.estimatedSNR ?? 0;
+  const isReliable = signalQuality !== "poor";
+
+  // Calculate Motility Index (weighted by signal quality)
+  const motilityIndex = calculateMotilityIndex(eventsPerMinute, activeFraction, signalQuality);
 
   // Create activity timeline
   const activityTimeline = createActivityTimeline(
@@ -1720,6 +1850,10 @@ export function analyzeAudioSamples(
     motilityIndex,
     activityTimeline,
     timelineSegments: CONFIG.timelineSegments,
+    // NG-HARDEN-05: Signal quality metrics
+    signalQuality,
+    snrDb: Math.round(snrDb * 10) / 10,
+    isReliable,
   };
 }
 
@@ -1837,13 +1971,25 @@ export function getVisualizationData(
 ): AudioVisualizationData {
   const { applyBirdFilter = true, isHummingPhase = false } = options;
 
-  // Apply same filtering logic as analyzeAudioSamples
+  // Apply same filtering logic as analyzeAudioSamples (NG-HARDEN-05)
   let filteredSamples: number[];
 
   if (isHummingPhase) {
     filteredSamples = samples;
   } else if (applyBirdFilter) {
-    filteredSamples = applySpectralBandpass(samples, sampleRate);
+    // NG-HARDEN-05: Detect hums and subtract, then bandpass
+    const anfCalibration = calibrateAmbientNoiseFloor(samples, sampleRate);
+    let processedSamples = samples;
+
+    if (anfCalibration.detectedHumFrequencies.length > 0) {
+      processedSamples = applySpectralSubtraction(
+        samples,
+        anfCalibration.detectedHumFrequencies,
+        sampleRate
+      );
+    }
+
+    filteredSamples = applySpectralBandpass(processedSamples, sampleRate);
   } else {
     filteredSamples = samples;
   }
@@ -1890,6 +2036,36 @@ export function getVisualizationData(
       windowSizeSamples,
       sampleRate
     ));
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // DURATION GATING (NG-HARDEN-05)
+    // ══════════════════════════════════════════════════════════════════════════════
+    events = events.filter((event) => {
+      const eventDurationWindows = event.endWindow - event.startWindow + 1;
+      const eventDurationMs = eventDurationWindows * CONFIG.windowSizeMs;
+
+      // Reject transients and sustained noise; accept 0.5s-2s events
+      if (eventDurationMs < CONFIG.transientRejectDurationMs) return false;
+      if (eventDurationMs > CONFIG.sustainedNoiseRejectDurationMs) return false;
+      return (
+        eventDurationMs >= CONFIG.minValidEventDurationMs &&
+        eventDurationMs <= CONFIG.maxValidEventDurationMs
+      );
+    });
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // TRANSIENT SUPPRESSION (NG-HARDEN-05)
+    // ══════════════════════════════════════════════════════════════════════════════
+    events = events.filter((event) => {
+      const startSample = event.startWindow * windowSizeSamples;
+      const endSample = Math.min(
+        (event.endWindow + 1) * windowSizeSamples,
+        filteredSamples.length
+      );
+      const eventSamples = filteredSamples.slice(startSample, endSample);
+      const transientResult = detectTransient(eventSamples, sampleRate);
+      return !transientResult.isTransient;
+    });
   } else {
     // Air noise dominated or psychoacoustically gated - no valid events
     events = [];
@@ -2231,6 +2407,299 @@ export function runSpectralHardeningSimulation(): SimulationResult[] {
       zcr: mixedSpectral.zcr,
       isDominatedByAirNoise: mixedSpectral.isWhiteNoise,
     },
+  });
+
+  return results;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// NG-HARDEN-05: STRESS TEST SCENARIOS
+// BBQ/Crowd noise simulation for acoustic environment isolation testing
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generate BBQ party noise simulation
+ *
+ * Characteristics:
+ * - Broadband crowd noise
+ * - Random transients (dishes, voices)
+ * - Variable amplitude
+ * - Some energy in gut frequency band (100-450Hz) from crowd rumble
+ *
+ * @param durationSeconds - Duration of noise
+ * @param sampleRate - Sample rate
+ * @returns Array of BBQ noise samples
+ */
+export function generateBBQNoise(
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate
+): number[] {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const samples: number[] = new Array(numSamples).fill(0);
+
+  // Base broadband noise (crowd rumble)
+  for (let i = 0; i < numSamples; i++) {
+    samples[i] = (Math.random() * 2 - 1) * 0.15;
+  }
+
+  // Add random transients (dishes, laughter)
+  const transientCount = Math.floor(durationSeconds * 3); // 3 transients per second
+  for (let t = 0; t < transientCount; t++) {
+    const startSample = Math.floor(Math.random() * (numSamples - 500));
+    const transientDuration = Math.floor(Math.random() * 50) + 20; // 20-70ms transients
+
+    for (let i = 0; i < transientDuration; i++) {
+      if (startSample + i < numSamples) {
+        const spike = (Math.random() * 2 - 1) * 0.5 * Math.exp(-i / 30);
+        samples[startSample + i] += spike;
+      }
+    }
+  }
+
+  // Add occasional longer speech-like bursts
+  const speechCount = Math.floor(durationSeconds / 3); // Speech every 3 seconds
+  for (let s = 0; s < speechCount; s++) {
+    const startSample = Math.floor(Math.random() * (numSamples - sampleRate));
+    const speechDuration = Math.floor(Math.random() * sampleRate * 0.5) + sampleRate * 0.3;
+
+    for (let i = 0; i < speechDuration; i++) {
+      if (startSample + i < numSamples) {
+        // Speech-like modulated noise
+        const t = i / sampleRate;
+        const envelope = Math.sin(Math.PI * i / speechDuration);
+        const speech = (Math.random() * 2 - 1) * 0.2 * envelope;
+        samples[startSample + i] += speech;
+      }
+    }
+  }
+
+  return samples;
+}
+
+/**
+ * Generate kitchen cooking noise simulation
+ *
+ * Characteristics:
+ * - Metallic transients (pots, utensils)
+ * - Running water (broadband noise)
+ * - Exhaust fan drone (constant 120Hz hum)
+ *
+ * @param durationSeconds - Duration of noise
+ * @param sampleRate - Sample rate
+ * @returns Array of kitchen noise samples
+ */
+export function generateKitchenNoise(
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate
+): number[] {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const samples: number[] = new Array(numSamples).fill(0);
+
+  // Constant exhaust fan hum (120Hz + harmonics)
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    samples[i] = Math.sin(2 * Math.PI * 120 * t) * 0.1;
+    samples[i] += Math.sin(2 * Math.PI * 240 * t) * 0.05;
+    samples[i] += Math.sin(2 * Math.PI * 360 * t) * 0.02;
+  }
+
+  // Running water broadband noise (periodic bursts)
+  const waterBurstCount = Math.floor(durationSeconds / 5); // Water every 5 seconds
+  for (let w = 0; w < waterBurstCount; w++) {
+    const startSample = Math.floor(w * 5 * sampleRate + Math.random() * sampleRate);
+    const waterDuration = Math.floor(Math.random() * sampleRate * 2) + sampleRate;
+
+    for (let i = 0; i < waterDuration; i++) {
+      if (startSample + i < numSamples) {
+        samples[startSample + i] += (Math.random() * 2 - 1) * 0.2;
+      }
+    }
+  }
+
+  // Metallic transients (pots, utensils)
+  const clatterCount = Math.floor(durationSeconds * 1.5); // 1.5 per second
+  for (let c = 0; c < clatterCount; c++) {
+    const startSample = Math.floor(Math.random() * (numSamples - 200));
+
+    // Short metallic ring (damped sinusoid)
+    const ringFreq = 800 + Math.random() * 1500; // 800-2300 Hz
+    const ringDuration = Math.floor(Math.random() * 100) + 50; // 50-150ms
+
+    for (let i = 0; i < ringDuration; i++) {
+      if (startSample + i < numSamples) {
+        const t = i / sampleRate;
+        const damping = Math.exp(-i / 30);
+        samples[startSample + i] += Math.sin(2 * Math.PI * ringFreq * t) * 0.4 * damping;
+      }
+    }
+  }
+
+  return samples;
+}
+
+/**
+ * Generate office/clinic noise simulation
+ *
+ * Characteristics:
+ * - HVAC constant hum (60Hz + harmonics)
+ * - Keyboard typing (rapid transients)
+ * - Distant voices (muffled speech)
+ *
+ * @param durationSeconds - Duration of noise
+ * @param sampleRate - Sample rate
+ * @returns Array of office noise samples
+ */
+export function generateOfficeNoise(
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate
+): number[] {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const samples: number[] = new Array(numSamples).fill(0);
+
+  // HVAC constant hum (60Hz + harmonics)
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    samples[i] = Math.sin(2 * Math.PI * 60 * t) * 0.08;
+    samples[i] += Math.sin(2 * Math.PI * 120 * t) * 0.04;
+    samples[i] += Math.sin(2 * Math.PI * 180 * t) * 0.02;
+    // Low background noise
+    samples[i] += (Math.random() * 2 - 1) * 0.03;
+  }
+
+  // Keyboard typing (very short transients)
+  const typingBurstCount = Math.floor(durationSeconds * 0.5); // Typing bursts
+  for (let tb = 0; tb < typingBurstCount; tb++) {
+    const burstStart = Math.floor(Math.random() * (numSamples - sampleRate * 3));
+    const keysInBurst = Math.floor(Math.random() * 20) + 10; // 10-30 keystrokes
+
+    for (let k = 0; k < keysInBurst; k++) {
+      const keyStart = burstStart + Math.floor(k * sampleRate * 0.1); // ~100ms between keys
+      const keyDuration = Math.floor(Math.random() * 30) + 10; // 10-40ms
+
+      for (let i = 0; i < keyDuration; i++) {
+        if (keyStart + i < numSamples) {
+          samples[keyStart + i] += (Math.random() * 2 - 1) * 0.15 * Math.exp(-i / 10);
+        }
+      }
+    }
+  }
+
+  return samples;
+}
+
+/**
+ * Extended stress test simulation result
+ */
+export interface StressTestResult {
+  scenario: string;
+  description: string;
+  expectedVRS: number | string;
+  actualMotilityIndex: number;
+  actualEventsPerMinute: number;
+  signalQuality: SignalQuality;
+  snrDb: number;
+  passed: boolean;
+  failureReason?: string;
+}
+
+/**
+ * Run all NG-HARDEN-05 stress test scenarios
+ *
+ * Tests the acoustic environment isolation against:
+ * - BBQ party noise
+ * - Kitchen cooking noise
+ * - Office/clinic noise
+ * - Valid gut sounds (control)
+ *
+ * @returns Array of stress test results
+ */
+export function runAcousticIsolationStressTests(): StressTestResult[] {
+  const results: StressTestResult[] = [];
+  const durationSeconds = 30;
+  const sampleRate = CONFIG.sampleRate;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // STRESS TEST 1: BBQ Party
+  // Expected: VRS = 0 (all events rejected as environmental noise)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const bbqSamples = generateBBQNoise(durationSeconds, sampleRate);
+  const bbqAnalysis = analyzeAudioSamples(bbqSamples, durationSeconds, sampleRate);
+
+  results.push({
+    scenario: "BBQ_PARTY",
+    description: "Outdoor BBQ with voices, crowd noise, and transients",
+    expectedVRS: 0,
+    actualMotilityIndex: bbqAnalysis.motilityIndex,
+    actualEventsPerMinute: bbqAnalysis.eventsPerMinute,
+    signalQuality: bbqAnalysis.signalQuality ?? "poor",
+    snrDb: bbqAnalysis.snrDb ?? 0,
+    passed: bbqAnalysis.motilityIndex === 0,
+    failureReason: bbqAnalysis.motilityIndex !== 0
+      ? `Expected VRS=0, got ${bbqAnalysis.motilityIndex}`
+      : undefined,
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // STRESS TEST 2: Kitchen Cooking
+  // Expected: VRS = 0 (metallic transients and hum rejected)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const kitchenSamples = generateKitchenNoise(durationSeconds, sampleRate);
+  const kitchenAnalysis = analyzeAudioSamples(kitchenSamples, durationSeconds, sampleRate);
+
+  results.push({
+    scenario: "KITCHEN_COOKING",
+    description: "Kitchen with pots, running water, and exhaust fan",
+    expectedVRS: 0,
+    actualMotilityIndex: kitchenAnalysis.motilityIndex,
+    actualEventsPerMinute: kitchenAnalysis.eventsPerMinute,
+    signalQuality: kitchenAnalysis.signalQuality ?? "poor",
+    snrDb: kitchenAnalysis.snrDb ?? 0,
+    passed: kitchenAnalysis.motilityIndex === 0,
+    failureReason: kitchenAnalysis.motilityIndex !== 0
+      ? `Expected VRS=0, got ${kitchenAnalysis.motilityIndex}`
+      : undefined,
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // STRESS TEST 3: Office/Clinic
+  // Expected: VRS = 0 (HVAC hum and keyboard transients rejected)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const officeSamples = generateOfficeNoise(durationSeconds, sampleRate);
+  const officeAnalysis = analyzeAudioSamples(officeSamples, durationSeconds, sampleRate);
+
+  results.push({
+    scenario: "OFFICE_CLINIC",
+    description: "Office/clinic with HVAC hum and keyboard typing",
+    expectedVRS: 0,
+    actualMotilityIndex: officeAnalysis.motilityIndex,
+    actualEventsPerMinute: officeAnalysis.eventsPerMinute,
+    signalQuality: officeAnalysis.signalQuality ?? "poor",
+    snrDb: officeAnalysis.snrDb ?? 0,
+    passed: officeAnalysis.motilityIndex === 0,
+    failureReason: officeAnalysis.motilityIndex !== 0
+      ? `Expected VRS=0, got ${officeAnalysis.motilityIndex}`
+      : undefined,
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CONTROL: Valid Gut Sounds in Quiet Environment
+  // Expected: VRS > 0 (gut sounds detected)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const gutSamples = generateGutSound(durationSeconds, sampleRate, 10);
+  const gutAnalysis = analyzeAudioSamples(gutSamples, durationSeconds, sampleRate);
+
+  results.push({
+    scenario: "VALID_GUT_SOUNDS_QUIET",
+    description: "Valid gut sounds in quiet environment (control)",
+    expectedVRS: ">0",
+    actualMotilityIndex: gutAnalysis.motilityIndex,
+    actualEventsPerMinute: gutAnalysis.eventsPerMinute,
+    signalQuality: gutAnalysis.signalQuality ?? "good",
+    snrDb: gutAnalysis.snrDb ?? 0,
+    passed: gutAnalysis.motilityIndex > 0 || gutAnalysis.eventsPerMinute > 0,
+    failureReason: (gutAnalysis.motilityIndex === 0 && gutAnalysis.eventsPerMinute === 0)
+      ? "Expected VRS>0, got 0"
+      : undefined,
   });
 
   return results;

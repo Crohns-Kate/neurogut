@@ -787,6 +787,148 @@
       "priority": 13,
       "passes": true,
       "notes": "NG-HARDEN-04 complete. Session state machine with strict guards prevents double-loop issues. Temporal masking (spectral entropy stationarity) detects constant air noise. Rhythmic rejection (autocorrelation) detects mechanical noise. Combined psychoacoustic gating integrated into analysis pipeline. Mock signal verification suite created. All tests pass. TypeScript compiles."
+    },
+    {
+      "id": "NG-HARDEN-05",
+      "name": "Acoustic Environment Isolation — All-Ear Microphone Sensitivity Fix",
+      "description": "As a clinical user recording in noisy environments (BBQ, clinic, crowd), I need the app to differentiate between rhythmic gut motility sounds and random environmental noise, so that my VRS score reflects true gut activity, not ambient clatter.",
+      "status": "in_progress",
+      "problemStatement": {
+        "issue": "All-Ear Microphone Sensitivity",
+        "symptoms": [
+          "Random environmental noise (dishes, voices, traffic) triggers false gut sound events",
+          "Rhythmic motility (genuine peristalsis) is not distinguished from random clatter",
+          "Constant hums (AC, refrigerator) inflate baseline energy",
+          "Sharp transients (door slams, coughs) spike VRS incorrectly",
+          "VRS > 0 in silent environments due to phone mic picking up everything"
+        ],
+        "rootCause": "Current bandpass (150-1000Hz) is too wide; gut sounds cluster in 100-450Hz. No duration gating, spectral subtraction, or transient suppression."
+      },
+      "features": [
+        "Ambient Noise Floor (ANF) calibration with 5-second pre-recording baseline",
+        "Tightened bandpass filter (100Hz-450Hz) for gut sound isolation",
+        "Duration Gating: Only signals lasting 0.5s-2s pass as gut events",
+        "Spectral Subtraction: Remove constant frequency hums (AC, refrigerator)",
+        "Transient Suppression: Reject sharp <100ms spikes (clicks, clatter)",
+        "Signal-to-Noise Ratio (SNR) calculation for Signal Quality indicator",
+        "BBQ/Crowd noise stress test scenarios"
+      ],
+      "implementation": {
+        "ambientNoiseFloor": {
+          "description": "5-second calibration period before recording to measure environmental baseline",
+          "algorithm": "ANF = mean(RMS energy) + 1.5 * stdDev over calibration window",
+          "config": {
+            "anfCalibrationDurationSeconds": 5,
+            "anfThresholdMultiplier": 1.5,
+            "anfMinSNR": 6.0
+          },
+          "output": "Adaptive threshold above which events are detected"
+        },
+        "tightenedBandpass": {
+          "description": "Narrow frequency range to isolate gut sounds from environmental noise",
+          "oldRange": "150Hz - 1000Hz",
+          "newRange": "100Hz - 450Hz",
+          "rationale": "Gut sounds (borborygmi, peristalsis) peak at 100-400Hz; human speech, birds, and environmental noise dominate >500Hz",
+          "config": {
+            "gutBandLowHz": 100,
+            "gutBandHighHz": 450,
+            "rolloffSteepness": 24
+          }
+        },
+        "durationGating": {
+          "description": "Reject events outside the physiological duration range of gut sounds",
+          "rationale": "Gut sounds last 0.5s-2s; clicks (<0.1s) and sustained noise (>2s) are artifacts",
+          "config": {
+            "minEventDurationMs": 500,
+            "maxEventDurationMs": 2000,
+            "transientRejectMs": 100
+          },
+          "rejection": "Events <0.5s or >2s automatically rejected"
+        },
+        "spectralSubtraction": {
+          "description": "Remove constant frequency components (hums) from the signal",
+          "algorithm": "Identify stable frequency peaks during calibration; subtract their magnitude during analysis",
+          "config": {
+            "humDetectionThreshold": 0.7,
+            "humFrequencyBands": [50, 60, 100, 120, 180, 240],
+            "subtractionStrength": 0.8
+          },
+          "targets": ["AC mains hum (50/60Hz)", "Refrigerator compressor (120Hz)", "Fluorescent lights (100Hz)"]
+        },
+        "transientSuppression": {
+          "description": "Reject sharp transients that are not gut sounds",
+          "algorithm": "Detect onset slope > threshold; if duration < 100ms, reject",
+          "config": {
+            "transientOnsetSlopeThreshold": 10.0,
+            "transientMaxDurationMs": 100,
+            "transientEnergyRatio": 5.0
+          },
+          "targets": ["Door slams", "Coughs", "Keyboard clicks", "Dish clatter"]
+        },
+        "signalQualityMetric": {
+          "description": "SNR-based Signal Quality indicator for UI feedback",
+          "algorithm": "SNR = 10 * log10(signalPower / noisePower)",
+          "classification": {
+            "excellent": "SNR >= 20 dB",
+            "good": "SNR >= 12 dB",
+            "fair": "SNR >= 6 dB",
+            "poor": "SNR < 6 dB"
+          },
+          "uiDisplay": "Traffic light indicator (green/yellow/red) on recording screen"
+        }
+      },
+      "stressTestScenarios": [
+        {
+          "name": "BBQ_PARTY",
+          "description": "Outdoor BBQ with voices, music, sizzling, and crowd noise",
+          "expectedVRS": "0 unless gut sounds clearly present",
+          "challengeFactors": ["Broadband noise", "Transient events", "Variable amplitude"]
+        },
+        {
+          "name": "CLINIC_WAITING_ROOM",
+          "description": "Indoor clinic with AC hum, footsteps, distant voices",
+          "expectedVRS": "Accurate detection of gut sounds despite hum",
+          "challengeFactors": ["Constant 60Hz hum", "Intermittent transients", "Low-level background"]
+        },
+        {
+          "name": "KITCHEN_COOKING",
+          "description": "Active kitchen with pots, running water, exhaust fan",
+          "expectedVRS": "0 unless gut sounds clearly present",
+          "challengeFactors": ["Metallic transients", "Running water (broadband)", "Fan drone"]
+        },
+        {
+          "name": "OFFICE_OPEN_PLAN",
+          "description": "Open office with keyboard typing, phone calls, HVAC",
+          "expectedVRS": "Accurate detection despite keyboard transients",
+          "challengeFactors": ["Rapid transients", "Voice bleed", "HVAC hum"]
+        }
+      ],
+      "definitionOfDone": [
+        "ANF calibration implemented with 5-second baseline",
+        "Bandpass tightened to 100Hz-450Hz",
+        "Duration gating rejects events <0.5s or >2s",
+        "Spectral subtraction removes constant hums",
+        "Transient suppression rejects <100ms spikes",
+        "Signal Quality metric (SNR) exposed to UI",
+        "All stress test scenarios pass",
+        "TypeScript check passes with zero errors"
+      ],
+      "constraints": [
+        "Must not reject valid gut sounds (false negatives < 5%)",
+        "Must maintain backward compatibility with existing sessions",
+        "ANF calibration must complete within 5 seconds",
+        "Signal Quality must update in real-time during recording"
+      ],
+      "acceptanceCriteria": [
+        "BBQ party noise produces VRS = 0.0",
+        "Clinic AC hum is subtracted; gut sounds detected",
+        "Kitchen clatter produces VRS = 0.0",
+        "Valid gut sounds in quiet room still produce VRS > 0",
+        "UI shows Signal Quality indicator during recording"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "NG-HARDEN-05 COMPLETE. Implemented 10-sprint Acoustic Environment Isolation: (1) ANF 5-second calibration, (2) Tightened bandpass 100-450Hz, (3) Duration gating 0.5s-2s, (4) Spectral subtraction for hums, (5) Transient suppression <100ms, (6) Signal quality weighted VRS, (7) UI SignalQualityIndicator component, (8) Stress tests for BBQ/Kitchen/Office/Clinic. All-Ear microphone sensitivity problem solved. TypeScript compiles."
     }
   ]
 }

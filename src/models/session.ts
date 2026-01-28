@@ -161,6 +161,44 @@ export function getMotilityCategoryLabel(category: MotilityCategory): string {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════════
+// SIGNAL QUALITY (NG-HARDEN-05)
+// Signal quality classification based on SNR
+// ══════════════════════════════════════════════════════════════════════════════════
+export type SignalQualityLevel = "excellent" | "good" | "fair" | "poor";
+
+/**
+ * Get human-readable label for signal quality level
+ */
+export function getSignalQualityLabel(quality: SignalQualityLevel): string {
+  switch (quality) {
+    case "excellent":
+      return "Excellent";
+    case "good":
+      return "Good";
+    case "fair":
+      return "Fair";
+    case "poor":
+      return "Poor";
+  }
+}
+
+/**
+ * Get color for signal quality indicator (traffic light)
+ */
+export function getSignalQualityColor(quality: SignalQualityLevel): string {
+  switch (quality) {
+    case "excellent":
+      return "#22C55E"; // green-500
+    case "good":
+      return "#84CC16"; // lime-500
+    case "fair":
+      return "#EAB308"; // yellow-500
+    case "poor":
+      return "#EF4444"; // red-500
+  }
+}
+
 // Session analytics computed from audio analysis
 export interface SessionAnalytics {
   // Number of detected gut sound events per minute
@@ -175,6 +213,10 @@ export interface SessionAnalytics {
   activityTimeline: number[];
   // Number of segments in the timeline
   timelineSegments: number;
+  // NG-HARDEN-05: Signal Quality metrics
+  signalQuality?: SignalQualityLevel;
+  snrDb?: number;
+  isReliable?: boolean;
 }
 
 // State of Mind before recording
