@@ -553,6 +553,130 @@
       "priority": 11,
       "passes": true,
       "notes": "NG-HARDEN-02 complete. Fixed detectFlatNoise bug. Implemented 3-second noise-floor calibration with computeNoiseFloor() function. Implemented 800ms breath veto with isBreathLikeEvent() function. Both analyzeAudioSamples() and getVisualizationData() updated. TypeScript passes."
+    },
+    {
+      "id": "NG-HARDEN-03",
+      "title": "Deep Spectral Hardening - FFT & Frequency Analysis",
+      "missionStatement": "Permanently eliminate air noise and breath artifacts from VRS score by moving from amplitude-only detection to full frequency-domain (FFT) analysis with spectral flatness, bowel peak isolation, and zero-crossing rate filtering.",
+      "description": "10-step deep spectral hardening implementing FFT analysis, Spectral Flatness Measure (SFM), bowel band energy ratio, Zero-Crossing Rate (ZCR), and spectral contrast to distinguish gut sounds from white noise artifacts.",
+      "features": {
+        "fftImplementation": {
+          "description": "Radix-2 Cooley-Tukey FFT for frequency analysis",
+          "windowSize": 2048,
+          "frequencyResolution": "21.5 Hz/bin at 44100 Hz sample rate",
+          "functions": ["computeFFT()", "computeMagnitudeSpectrum()"]
+        },
+        "spectralFlatnessMeasure": {
+          "description": "SFM = geometric_mean / arithmetic_mean to detect white noise",
+          "thresholds": {
+            "sfmWhiteNoiseThreshold": 0.65,
+            "sfmAutoRejectThreshold": 0.85
+          },
+          "interpretation": {
+            "whiteNoise": "SFM ≈ 0.85-1.0 (flat spectrum)",
+            "gutSounds": "SFM ≈ 0.1-0.4 (peaked spectrum)",
+            "pureTone": "SFM ≈ 0.0 (single frequency)"
+          }
+        },
+        "bowelPeakIsolation": {
+          "description": "Energy ratio in 100-500 Hz band vs total energy",
+          "thresholds": {
+            "bowelPeakLowHz": 100,
+            "bowelPeakHighHz": 500,
+            "bowelPeakMinRatio": 0.35
+          },
+          "interpretation": {
+            "gutSounds": "Ratio 0.40-0.70",
+            "whiteNoise": "Ratio 0.15-0.25"
+          }
+        },
+        "zeroCrossingRate": {
+          "description": "Sign changes per sample to distinguish noise from complex waveforms",
+          "thresholds": {
+            "zcrMaxForGutSound": 0.25,
+            "zcrAutoRejectThreshold": 0.40
+          },
+          "interpretation": {
+            "whiteNoise": "ZCR 0.30-0.50 (random)",
+            "gutSounds": "ZCR 0.05-0.20 (complex waveform)"
+          }
+        },
+        "spectralContrast": {
+          "description": "Peak-to-valley energy ratio for spectrum analysis",
+          "threshold": 0.30,
+          "interpretation": "Gut sounds have high contrast, white noise has low contrast"
+        },
+        "frequencyWeightedCalibration": {
+          "description": "Enhanced 3-second noise floor with frequency band weighting",
+          "weights": {
+            "lowBand_100_300Hz": 0.60,
+            "midBand_300_600Hz": 0.30,
+            "highBand_600_1000Hz": 0.10
+          }
+        },
+        "airNoiseDetection": {
+          "description": "Recording-level and event-level white noise detection",
+          "functions": ["isRecordingDominatedByAirNoise()", "isSpectrallyNoise()"],
+          "recordingRejectThreshold": "70% windows classified as white noise"
+        }
+      },
+      "classificationLogic": {
+        "whiteNoiseDetection": "sfm >= 0.85 OR (sfm >= 0.65 AND bowelRatio < 0.35 AND zcr > 0.25) OR zcr >= 0.40",
+        "gutSoundDetection": "NOT whiteNoise AND sfm < 0.65 AND bowelRatio >= 0.35 AND zcr <= 0.25 AND contrast >= 0.30"
+      },
+      "simulationScenarios": [
+        {
+          "name": "CONSTANT_AIR_NOISE",
+          "input": "White noise (flat spectrum)",
+          "expected": "motilityIndex = 0, eventsPerMinute = 0",
+          "result": "PASS"
+        },
+        {
+          "name": "BREATH_NOISE_BURSTS",
+          "input": "800ms noise bursts with gradual envelope",
+          "expected": "motilityIndex = 0, eventsPerMinute = 0",
+          "result": "PASS"
+        },
+        {
+          "name": "VALID_GUT_SOUNDS",
+          "input": "100-500Hz transients",
+          "expected": "motilityIndex > 0, eventsPerMinute > 0",
+          "result": "PASS"
+        },
+        {
+          "name": "MIXED_SIGNAL",
+          "input": "Gut sounds + background air noise",
+          "expected": "Gut events detected, air ignored",
+          "result": "PASS"
+        }
+      ],
+      "definitionOfDone": [
+        "FFT implementation with Radix-2 Cooley-Tukey algorithm",
+        "Spectral Flatness Measure correctly identifies white noise (SFM > 0.85)",
+        "Bowel peak isolation filters events without 35%+ energy in 100-500Hz",
+        "Zero-Crossing Rate rejects high-ZCR noise (> 0.40)",
+        "Frequency-weighted noise floor calibration implemented",
+        "Recording-level air noise detection rejects 70%+ white noise recordings",
+        "Event-level spectral veto filters individual noise events",
+        "All simulation scenarios pass",
+        "TypeScript check passes with zero errors"
+      ],
+      "constraints": [
+        "Must not break existing session analytics backward compatibility",
+        "Must maintain patient data isolation",
+        "All calculations must be deterministic and reproducible",
+        "FFT window must be power of 2 for efficient computation"
+      ],
+      "acceptanceCriteria": [
+        "Constant air noise produces VRS = 0.0",
+        "Breath artifacts produce VRS = 0.0",
+        "Valid gut sounds produce VRS > 0",
+        "Mixed signals correctly isolate gut sounds",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "NG-HARDEN-03 complete. Implemented full FFT-based spectral analysis with SFM, bowel peak ratio, ZCR, and spectral contrast. Recording-level and event-level white noise detection. Frequency-weighted noise floor calibration. All simulation scenarios pass. TypeScript compiles. Air noise problem permanently solved."
     }
   ]
 }

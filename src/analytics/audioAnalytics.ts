@@ -68,6 +68,56 @@ const CONFIG = {
   breathOnsetSlopeThreshold: 3.0,
   // Minimum number of windows for breath onset/offset analysis
   breathOnsetWindows: 3,
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DEEP SPECTRAL HARDENING (NG-HARDEN-03)
+  // FFT-based frequency analysis to eliminate air noise and breath artifacts
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // FFT window size (must be power of 2 for radix-2 FFT)
+  // 2048 samples at 44100 Hz = ~46ms window, good frequency resolution (~21.5 Hz/bin)
+  fftWindowSize: 2048,
+
+  // SPECTRAL FLATNESS MEASURE (SFM)
+  // SFM = geometric_mean(spectrum) / arithmetic_mean(spectrum)
+  // White noise (air hiss) has SFM ≈ 1.0 (flat spectrum)
+  // Gut sounds have SFM ≈ 0.1-0.4 (peaked spectrum)
+  // Threshold below which signal is considered "peaked" (not white noise)
+  sfmWhiteNoiseThreshold: 0.65,
+  // SFM above this = definitely white noise (air hiss) - auto-reject
+  sfmAutoRejectThreshold: 0.85,
+
+  // BOWEL PEAK ISOLATION (100-500 Hz)
+  // Primary gut sounds: borborygmi, peristalsis, gurgling
+  // Energy should be concentrated in this band for valid gut sounds
+  bowelPeakLowHz: 100,
+  bowelPeakHighHz: 500,
+  // Minimum ratio of bowel band energy to total energy
+  // Gut sounds: > 0.4 (40%+ energy in bowel band)
+  // Air hiss: < 0.3 (energy spread across all frequencies)
+  bowelPeakMinRatio: 0.35,
+
+  // ZERO-CROSSING RATE (ZCR)
+  // ZCR = number of times signal crosses zero per sample
+  // Gut sounds: irregular ZCR (0.05-0.20) due to complex waveform
+  // Breath/air: smooth ZCR (0.30-0.50) due to noise-like waveform
+  // High ZCR indicates noise-like signal
+  zcrMaxForGutSound: 0.25,
+  // Very high ZCR is definitely noise
+  zcrAutoRejectThreshold: 0.40,
+
+  // SPECTRAL CONTRAST
+  // Measures difference between peaks and valleys in spectrum
+  // Gut sounds: high contrast (clear peaks)
+  // White noise: low contrast (flat spectrum)
+  spectralContrastMinForGutSound: 0.3,
+
+  // FREQUENCY-WEIGHTED CALIBRATION
+  // Weight different frequency bands during noise floor calibration
+  // Lower frequencies (100-300 Hz) are more relevant for gut sounds
+  calibrationLowBandWeight: 0.6,
+  calibrationMidBandWeight: 0.3,
+  calibrationHighBandWeight: 0.1,
 };
 
 /**
@@ -178,8 +228,418 @@ function stdDev(values: number[]): number {
   return Math.sqrt(mean(squareDiffs));
 }
 
+// ══════════════════════════════════════════════════════════════════════════════════
+// DEEP SPECTRAL HARDENING - FFT & FREQUENCY ANALYSIS (NG-HARDEN-03)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Radix-2 Cooley-Tukey FFT Implementation
+ * Computes the Fast Fourier Transform of a real-valued signal.
+ *
+ * @param samples - Input samples (length must be power of 2)
+ * @returns Complex spectrum as array of {real, imag} pairs
+ */
+function computeFFT(samples: number[]): Array<{ real: number; imag: number }> {
+  const N = samples.length;
+
+  // Base case
+  if (N <= 1) {
+    return samples.map((s) => ({ real: s, imag: 0 }));
+  }
+
+  // Ensure power of 2
+  if ((N & (N - 1)) !== 0) {
+    // Pad to next power of 2
+    const nextPow2 = Math.pow(2, Math.ceil(Math.log2(N)));
+    const padded = [...samples, ...new Array(nextPow2 - N).fill(0)];
+    return computeFFT(padded);
+  }
+
+  // Split into even and odd
+  const even: number[] = [];
+  const odd: number[] = [];
+  for (let i = 0; i < N; i++) {
+    if (i % 2 === 0) {
+      even.push(samples[i]);
+    } else {
+      odd.push(samples[i]);
+    }
+  }
+
+  // Recursive FFT
+  const evenFFT = computeFFT(even);
+  const oddFFT = computeFFT(odd);
+
+  // Combine
+  const result: Array<{ real: number; imag: number }> = new Array(N);
+  for (let k = 0; k < N / 2; k++) {
+    const angle = (-2 * Math.PI * k) / N;
+    const twiddleReal = Math.cos(angle);
+    const twiddleImag = Math.sin(angle);
+
+    // Complex multiplication: twiddle * odd[k]
+    const tReal = twiddleReal * oddFFT[k].real - twiddleImag * oddFFT[k].imag;
+    const tImag = twiddleReal * oddFFT[k].imag + twiddleImag * oddFFT[k].real;
+
+    result[k] = {
+      real: evenFFT[k].real + tReal,
+      imag: evenFFT[k].imag + tImag,
+    };
+    result[k + N / 2] = {
+      real: evenFFT[k].real - tReal,
+      imag: evenFFT[k].imag - tImag,
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Compute magnitude spectrum from FFT result
+ * Returns only positive frequencies (N/2 bins)
+ *
+ * @param fftResult - Complex FFT output
+ * @returns Magnitude spectrum (positive frequencies only)
+ */
+function computeMagnitudeSpectrum(
+  fftResult: Array<{ real: number; imag: number }>
+): number[] {
+  const N = fftResult.length;
+  const magnitudes: number[] = [];
+
+  // Only compute positive frequencies (0 to N/2)
+  for (let k = 0; k < N / 2; k++) {
+    const mag = Math.sqrt(
+      fftResult[k].real * fftResult[k].real +
+        fftResult[k].imag * fftResult[k].imag
+    );
+    magnitudes.push(mag);
+  }
+
+  return magnitudes;
+}
+
+/**
+ * Result of spectral analysis for a single window
+ */
+interface SpectralAnalysis {
+  /** Spectral Flatness Measure (0-1): 1 = white noise, 0 = pure tone */
+  sfm: number;
+  /** Ratio of energy in bowel band (100-500 Hz) to total energy */
+  bowelPeakRatio: number;
+  /** Zero-Crossing Rate (0-0.5): higher = more noise-like */
+  zcr: number;
+  /** Spectral contrast (0-1): higher = more peaked spectrum */
+  spectralContrast: number;
+  /** Total spectral energy */
+  totalEnergy: number;
+  /** Energy in bowel band (100-500 Hz) */
+  bowelBandEnergy: number;
+  /** Is this window likely white noise (air hiss)? */
+  isWhiteNoise: boolean;
+  /** Is this window likely a gut sound? */
+  isLikelyGutSound: boolean;
+}
+
+/**
+ * Compute Spectral Flatness Measure (SFM)
+ *
+ * SFM = geometric_mean(spectrum) / arithmetic_mean(spectrum)
+ *
+ * Mathematical properties:
+ * - White noise (flat spectrum): SFM ≈ 1.0
+ * - Pure tone (single frequency): SFM ≈ 0.0
+ * - Gut sounds (peaked spectrum): SFM ≈ 0.1-0.4
+ *
+ * @param magnitudes - Magnitude spectrum
+ * @returns SFM value between 0 and 1
+ */
+function computeSpectralFlatness(magnitudes: number[]): number {
+  if (magnitudes.length === 0) return 0;
+
+  // Filter out near-zero values to avoid log(0)
+  const nonZero = magnitudes.filter((m) => m > 1e-10);
+  if (nonZero.length === 0) return 0;
+
+  // Geometric mean = exp(mean(log(x)))
+  const logSum = nonZero.reduce((sum, m) => sum + Math.log(m), 0);
+  const geometricMean = Math.exp(logSum / nonZero.length);
+
+  // Arithmetic mean
+  const arithmeticMean = nonZero.reduce((sum, m) => sum + m, 0) / nonZero.length;
+
+  if (arithmeticMean === 0) return 0;
+
+  // SFM = geometric / arithmetic
+  const sfm = geometricMean / arithmeticMean;
+
+  // Clamp to [0, 1]
+  return Math.max(0, Math.min(1, sfm));
+}
+
+/**
+ * Compute energy ratio in bowel frequency band (100-500 Hz)
+ *
+ * Gut sounds concentrate energy in this band.
+ * Air hiss spreads energy across all frequencies.
+ *
+ * @param magnitudes - Magnitude spectrum
+ * @param sampleRate - Sample rate in Hz
+ * @param fftSize - FFT window size
+ * @returns Ratio of bowel band energy to total energy (0-1)
+ */
+function computeBowelPeakRatio(
+  magnitudes: number[],
+  sampleRate: number,
+  fftSize: number
+): { ratio: number; bowelEnergy: number; totalEnergy: number } {
+  const freqPerBin = sampleRate / fftSize;
+  const lowBin = Math.floor(CONFIG.bowelPeakLowHz / freqPerBin);
+  const highBin = Math.ceil(CONFIG.bowelPeakHighHz / freqPerBin);
+
+  let bowelEnergy = 0;
+  let totalEnergy = 0;
+
+  for (let i = 0; i < magnitudes.length; i++) {
+    const energy = magnitudes[i] * magnitudes[i];
+    totalEnergy += energy;
+
+    if (i >= lowBin && i <= highBin) {
+      bowelEnergy += energy;
+    }
+  }
+
+  const ratio = totalEnergy > 0 ? bowelEnergy / totalEnergy : 0;
+
+  return { ratio, bowelEnergy, totalEnergy };
+}
+
+/**
+ * Compute Zero-Crossing Rate (ZCR)
+ *
+ * ZCR = (number of zero crossings) / (number of samples - 1)
+ *
+ * Characteristics:
+ * - Gut sounds: irregular waveform → ZCR ≈ 0.05-0.20
+ * - Breath/air hiss: noise-like → ZCR ≈ 0.30-0.50
+ * - Pure tone: regular → ZCR ≈ 0.0-0.05
+ *
+ * @param samples - Time-domain samples
+ * @returns ZCR value (0 to 0.5 typical range)
+ */
+function computeZeroCrossingRate(samples: number[]): number {
+  if (samples.length < 2) return 0;
+
+  let crossings = 0;
+  for (let i = 1; i < samples.length; i++) {
+    // Count sign changes
+    if ((samples[i] >= 0 && samples[i - 1] < 0) ||
+        (samples[i] < 0 && samples[i - 1] >= 0)) {
+      crossings++;
+    }
+  }
+
+  return crossings / (samples.length - 1);
+}
+
+/**
+ * Compute Spectral Contrast
+ *
+ * Measures the difference between spectral peaks and valleys.
+ * High contrast = peaked spectrum (gut sounds)
+ * Low contrast = flat spectrum (white noise)
+ *
+ * @param magnitudes - Magnitude spectrum
+ * @returns Contrast value (0-1)
+ */
+function computeSpectralContrast(magnitudes: number[]): number {
+  if (magnitudes.length < 10) return 0;
+
+  // Sort magnitudes to find peaks and valleys
+  const sorted = [...magnitudes].sort((a, b) => b - a);
+
+  // Top 10% as peaks
+  const peakCount = Math.max(1, Math.floor(magnitudes.length * 0.1));
+  const peakEnergy = sorted.slice(0, peakCount).reduce((s, m) => s + m, 0) / peakCount;
+
+  // Bottom 50% as valleys
+  const valleyCount = Math.floor(magnitudes.length * 0.5);
+  const valleyEnergy = sorted.slice(-valleyCount).reduce((s, m) => s + m, 0) / valleyCount;
+
+  if (peakEnergy === 0) return 0;
+
+  // Contrast = (peak - valley) / peak
+  const contrast = (peakEnergy - valleyEnergy) / peakEnergy;
+
+  return Math.max(0, Math.min(1, contrast));
+}
+
+/**
+ * Perform full spectral analysis on a window of audio samples
+ *
+ * Combines FFT, SFM, Bowel Peak Ratio, ZCR, and Spectral Contrast
+ * to determine if the window contains gut sounds or noise artifacts.
+ *
+ * @param samples - Time-domain samples (will be windowed and padded)
+ * @param sampleRate - Sample rate in Hz
+ * @returns SpectralAnalysis with all metrics and classification
+ */
+function analyzeWindowSpectrum(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): SpectralAnalysis {
+  const fftSize = CONFIG.fftWindowSize;
+
+  // Pad or truncate to FFT size
+  let paddedSamples: number[];
+  if (samples.length >= fftSize) {
+    paddedSamples = samples.slice(0, fftSize);
+  } else {
+    paddedSamples = [...samples, ...new Array(fftSize - samples.length).fill(0)];
+  }
+
+  // Apply Hann window to reduce spectral leakage
+  const windowed = paddedSamples.map(
+    (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)))
+  );
+
+  // Compute FFT and magnitude spectrum
+  const fftResult = computeFFT(windowed);
+  const magnitudes = computeMagnitudeSpectrum(fftResult);
+
+  // Compute all spectral metrics
+  const sfm = computeSpectralFlatness(magnitudes);
+  const { ratio: bowelPeakRatio, bowelEnergy, totalEnergy } = computeBowelPeakRatio(
+    magnitudes,
+    sampleRate,
+    fftSize
+  );
+  const zcr = computeZeroCrossingRate(samples);
+  const spectralContrast = computeSpectralContrast(magnitudes);
+
+  // CLASSIFICATION LOGIC
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // WHITE NOISE DETECTION (Air Hiss)
+  // Criteria: High SFM + Low bowel ratio + High ZCR
+  const isWhiteNoise =
+    sfm >= CONFIG.sfmAutoRejectThreshold || // Definitely flat spectrum
+    (sfm >= CONFIG.sfmWhiteNoiseThreshold &&
+      bowelPeakRatio < CONFIG.bowelPeakMinRatio &&
+      zcr > CONFIG.zcrMaxForGutSound) || // Multiple indicators of noise
+    zcr >= CONFIG.zcrAutoRejectThreshold; // Very high ZCR = definitely noise
+
+  // GUT SOUND DETECTION
+  // Criteria: Low SFM + High bowel ratio + Low ZCR + High contrast
+  const isLikelyGutSound =
+    !isWhiteNoise &&
+    sfm < CONFIG.sfmWhiteNoiseThreshold &&
+    bowelPeakRatio >= CONFIG.bowelPeakMinRatio &&
+    zcr <= CONFIG.zcrMaxForGutSound &&
+    spectralContrast >= CONFIG.spectralContrastMinForGutSound;
+
+  return {
+    sfm,
+    bowelPeakRatio,
+    zcr,
+    spectralContrast,
+    totalEnergy,
+    bowelBandEnergy: bowelEnergy,
+    isWhiteNoise,
+    isLikelyGutSound,
+  };
+}
+
+/**
+ * Analyze an event to determine if it's a valid gut sound or noise artifact
+ *
+ * This performs deep spectral analysis on the samples within an event
+ * to classify it as gut sound or air/breath noise.
+ *
+ * @param samples - Full recording samples
+ * @param event - Detected event with window indices
+ * @param windowSizeSamples - Number of samples per window
+ * @param sampleRate - Sample rate in Hz
+ * @returns true if event is noise (should be rejected), false if valid gut sound
+ */
+function isSpectrallyNoise(
+  samples: number[],
+  event: DetectedEvent,
+  windowSizeSamples: number,
+  sampleRate: number
+): boolean {
+  // Extract samples for this event
+  const startSample = event.startWindow * windowSizeSamples;
+  const endSample = (event.endWindow + 1) * windowSizeSamples;
+  const eventSamples = samples.slice(startSample, Math.min(endSample, samples.length));
+
+  if (eventSamples.length < CONFIG.fftWindowSize / 4) {
+    // Too short for reliable spectral analysis - use conservative approach
+    return false;
+  }
+
+  // Analyze spectrum of the event
+  const spectral = analyzeWindowSpectrum(eventSamples, sampleRate);
+
+  // If spectral analysis says it's white noise, reject it
+  if (spectral.isWhiteNoise) {
+    return true;
+  }
+
+  // If it's definitely NOT a gut sound, reject it
+  // (But don't reject ambiguous signals)
+  if (spectral.sfm > CONFIG.sfmWhiteNoiseThreshold &&
+      spectral.bowelPeakRatio < CONFIG.bowelPeakMinRatio * 0.8) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detect continuous air/breath noise in the entire recording
+ *
+ * If the whole recording is dominated by white noise characteristics,
+ * it indicates the phone is in air or near a fan/vent.
+ *
+ * @param samples - Full recording samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns true if recording is dominated by air noise
+ */
+function isRecordingDominatedByAirNoise(
+  samples: number[],
+  sampleRate: number
+): boolean {
+  if (samples.length < CONFIG.fftWindowSize) return false;
+
+  // Analyze multiple windows across the recording
+  const hopSize = CONFIG.fftWindowSize;
+  const numWindows = Math.floor(samples.length / hopSize);
+  const windowsToAnalyze = Math.min(numWindows, 10); // Sample up to 10 windows
+
+  let whiteNoiseWindows = 0;
+  const step = Math.max(1, Math.floor(numWindows / windowsToAnalyze));
+
+  for (let i = 0; i < windowsToAnalyze; i++) {
+    const startIdx = (i * step) * hopSize;
+    const windowSamples = samples.slice(startIdx, startIdx + hopSize);
+
+    if (windowSamples.length >= CONFIG.fftWindowSize / 2) {
+      const spectral = analyzeWindowSpectrum(windowSamples, sampleRate);
+      if (spectral.isWhiteNoise) {
+        whiteNoiseWindows++;
+      }
+    }
+  }
+
+  // If > 70% of windows are white noise, recording is air-dominated
+  const whiteNoiseRatio = whiteNoiseWindows / windowsToAnalyze;
+  return whiteNoiseRatio > 0.7;
+}
+
 /**
  * Noise-floor calibration result from initial 3-second window
+ * Enhanced with frequency-weighted analysis (NG-HARDEN-03)
  */
 interface NoiseFloorCalibration {
   /** Mean RMS energy during calibration period */
@@ -190,22 +650,100 @@ interface NoiseFloorCalibration {
   eventThreshold: number;
   /** Number of windows used for calibration */
   calibrationWindows: number;
+  /** Frequency-weighted noise floor (emphasizes gut sound band) */
+  frequencyWeightedNoiseFloor: number;
+  /** Average SFM during calibration (to detect baseline air noise) */
+  baselineSfm: number;
+  /** Is the baseline dominated by air noise? */
+  isAirNoiseBaseline: boolean;
+}
+
+/**
+ * Compute frequency-weighted energy for a window of samples
+ *
+ * Weights energy in different frequency bands:
+ * - 100-300 Hz (gut sounds): 60% weight
+ * - 300-600 Hz (mixed): 30% weight
+ * - 600-1000 Hz (high): 10% weight
+ *
+ * @param samples - Time-domain samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns Frequency-weighted energy value
+ */
+function computeFrequencyWeightedEnergy(
+  samples: number[],
+  sampleRate: number
+): number {
+  if (samples.length < 256) return 0;
+
+  const fftSize = Math.min(CONFIG.fftWindowSize, samples.length);
+  const freqPerBin = sampleRate / fftSize;
+
+  // Bin boundaries for frequency bands
+  const lowBandLow = Math.floor(100 / freqPerBin);
+  const lowBandHigh = Math.floor(300 / freqPerBin);
+  const midBandHigh = Math.floor(600 / freqPerBin);
+  const highBandHigh = Math.floor(1000 / freqPerBin);
+
+  // Pad or truncate to FFT size
+  let paddedSamples: number[];
+  if (samples.length >= fftSize) {
+    paddedSamples = samples.slice(0, fftSize);
+  } else {
+    paddedSamples = [...samples, ...new Array(fftSize - samples.length).fill(0)];
+  }
+
+  // Apply Hann window
+  const windowed = paddedSamples.map(
+    (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)))
+  );
+
+  // Compute FFT
+  const fftResult = computeFFT(windowed);
+  const magnitudes = computeMagnitudeSpectrum(fftResult);
+
+  // Calculate energy in each band
+  let lowBandEnergy = 0;
+  let midBandEnergy = 0;
+  let highBandEnergy = 0;
+
+  for (let i = 0; i < magnitudes.length; i++) {
+    const energy = magnitudes[i] * magnitudes[i];
+
+    if (i >= lowBandLow && i < lowBandHigh) {
+      lowBandEnergy += energy;
+    } else if (i >= lowBandHigh && i < midBandHigh) {
+      midBandEnergy += energy;
+    } else if (i >= midBandHigh && i < highBandHigh) {
+      highBandEnergy += energy;
+    }
+  }
+
+  // Apply frequency weights
+  const weightedEnergy =
+    lowBandEnergy * CONFIG.calibrationLowBandWeight +
+    midBandEnergy * CONFIG.calibrationMidBandWeight +
+    highBandEnergy * CONFIG.calibrationHighBandWeight;
+
+  return Math.sqrt(weightedEnergy);
 }
 
 /**
  * Compute noise-floor calibration from the first 3 seconds of audio
  *
- * This establishes the ambient baseline energy level before detecting gut events.
- * The calibration window captures room noise, HVAC, and any constant background.
- * Events are then detected relative to this calibrated baseline, not the full
- * recording average, which improves accuracy in varying acoustic environments.
+ * Enhanced with frequency-weighted analysis (NG-HARDEN-03):
+ * - Uses FFT to analyze spectral characteristics of baseline noise
+ * - Weights lower frequencies (100-300 Hz) more heavily as they're relevant for gut sounds
+ * - Detects if baseline is dominated by air noise (high SFM)
  *
  * @param energyValues - Windowed RMS energy values for entire recording
+ * @param samples - Raw audio samples for frequency analysis
  * @param sampleRate - Audio sample rate
  * @returns NoiseFloorCalibration with threshold for event detection
  */
 function computeNoiseFloor(
   energyValues: number[],
+  samples?: number[],
   sampleRate: number = CONFIG.sampleRate
 ): NoiseFloorCalibration {
   // Calculate how many windows fit in the calibration period
@@ -217,6 +755,11 @@ function computeNoiseFloor(
   // Use available windows if recording is shorter than calibration period
   const actualCalibrationWindows = Math.min(calibrationWindows, energyValues.length);
 
+  // Default spectral values
+  let frequencyWeightedNoiseFloor = 0;
+  let baselineSfm = 0;
+  let isAirNoiseBaseline = false;
+
   if (actualCalibrationWindows < 5) {
     // Fallback: not enough data for calibration, use full recording stats
     const noiseFloorMean = mean(energyValues);
@@ -226,6 +769,9 @@ function computeNoiseFloor(
       noiseFloorStdDev,
       eventThreshold: noiseFloorMean + CONFIG.thresholdMultiplier * noiseFloorStdDev,
       calibrationWindows: actualCalibrationWindows,
+      frequencyWeightedNoiseFloor: noiseFloorMean,
+      baselineSfm: 0.5, // Unknown
+      isAirNoiseBaseline: false,
     };
   }
 
@@ -235,17 +781,46 @@ function computeNoiseFloor(
   const noiseFloorMean = mean(calibrationEnergies);
   const noiseFloorStdDev = stdDev(calibrationEnergies);
 
-  // Event threshold: noise floor + calibrated multiplier * noise stdDev
-  // Using calibratedThresholdMultiplier (2.0) which is tighter than
-  // the general thresholdMultiplier (2.5) since we have a precise baseline
+  // FREQUENCY-WEIGHTED CALIBRATION (NG-HARDEN-03)
+  // Analyze spectral characteristics of calibration period
+  if (samples && samples.length > 0) {
+    const calibrationSamples = Math.floor(
+      CONFIG.calibrationDurationSeconds * sampleRate
+    );
+    const actualCalibrationSamples = Math.min(calibrationSamples, samples.length);
+    const calSamples = samples.slice(0, actualCalibrationSamples);
+
+    // Compute frequency-weighted energy
+    frequencyWeightedNoiseFloor = computeFrequencyWeightedEnergy(calSamples, sampleRate);
+
+    // Analyze spectral flatness of baseline
+    if (calSamples.length >= CONFIG.fftWindowSize) {
+      const spectral = analyzeWindowSpectrum(calSamples, sampleRate);
+      baselineSfm = spectral.sfm;
+      isAirNoiseBaseline = spectral.isWhiteNoise;
+    }
+  } else {
+    frequencyWeightedNoiseFloor = noiseFloorMean;
+  }
+
+  // Event threshold: Use frequency-weighted noise floor for better accuracy
+  // If baseline is air noise, use higher threshold
+  const thresholdMultiplier = isAirNoiseBaseline
+    ? CONFIG.calibratedThresholdMultiplier * 1.5 // Higher threshold for noisy baseline
+    : CONFIG.calibratedThresholdMultiplier;
+
   const eventThreshold =
-    noiseFloorMean + CONFIG.calibratedThresholdMultiplier * noiseFloorStdDev;
+    Math.max(noiseFloorMean, frequencyWeightedNoiseFloor) +
+    thresholdMultiplier * noiseFloorStdDev;
 
   return {
     noiseFloorMean,
     noiseFloorStdDev,
     eventThreshold,
     calibrationWindows: actualCalibrationWindows,
+    frequencyWeightedNoiseFloor,
+    baselineSfm,
+    isAirNoiseBaseline,
   };
 }
 
@@ -629,6 +1204,23 @@ export function analyzeAudioSamples(
   // Compute windowed energy from FILTERED samples
   const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DEEP SPECTRAL HARDENING - AIR NOISE DETECTION (NG-HARDEN-03)
+  // Check if entire recording is dominated by air noise BEFORE any processing
+  // ══════════════════════════════════════════════════════════════════════════════
+  const isDominatedByAirNoise = isRecordingDominatedByAirNoise(filteredSamples, sampleRate);
+  if (isDominatedByAirNoise) {
+    // Return zero motility - recording is air/breath noise, not gut sounds
+    return {
+      eventsPerMinute: 0,
+      totalActiveSeconds: 0,
+      totalQuietSeconds: Math.round(durationSeconds),
+      motilityIndex: 0,
+      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+      timelineSegments: CONFIG.timelineSegments,
+    };
+  }
+
   // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
   const noSkinContact = detectNoSkinContact(energyValues);
   if (noSkinContact) {
@@ -644,10 +1236,23 @@ export function analyzeAudioSamples(
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // NOISE-FLOOR CALIBRATION (3-second window)
-  // Establish ambient baseline from first 3 seconds before event detection
+  // FREQUENCY-WEIGHTED NOISE-FLOOR CALIBRATION (3-second window)
+  // Enhanced with spectral analysis to detect air noise baseline (NG-HARDEN-03)
   // ══════════════════════════════════════════════════════════════════════════════
-  const noiseFloor = computeNoiseFloor(energyValues, sampleRate);
+  const noiseFloor = computeNoiseFloor(energyValues, filteredSamples, sampleRate);
+
+  // If baseline is dominated by air noise, use stricter detection
+  if (noiseFloor.isAirNoiseBaseline) {
+    // Return zero motility - baseline indicates phone is in air, not on skin
+    return {
+      eventsPerMinute: 0,
+      totalActiveSeconds: 0,
+      totalQuietSeconds: Math.round(durationSeconds),
+      motilityIndex: 0,
+      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+      timelineSegments: CONFIG.timelineSegments,
+    };
+  }
 
   // Detect events using calibrated threshold
   let events = detectEvents(energyValues, noiseFloor.eventThreshold);
@@ -657,6 +1262,17 @@ export function analyzeAudioSamples(
   // Filter out events matching breath artifact profile (600-1000ms, gradual onset)
   // ══════════════════════════════════════════════════════════════════════════════
   events = events.filter((event) => !isBreathLikeEvent(event, energyValues));
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DEEP SPECTRAL VETO (NG-HARDEN-03)
+  // Analyze each event's spectrum to reject noise masquerading as gut sounds
+  // ══════════════════════════════════════════════════════════════════════════════
+  events = events.filter((event) => !isSpectrallyNoise(
+    filteredSamples,
+    event,
+    windowSizeSamples,
+    sampleRate
+  ));
 
   // Calculate metrics
   const durationMinutes = durationSeconds / 60;
@@ -741,6 +1357,7 @@ export function getConfig() {
 
 /**
  * Audio visualization data for waveform rendering
+ * Enhanced with spectral analysis data (NG-HARDEN-03)
  */
 export interface AudioVisualizationData {
   // RMS energy per window (100ms windows)
@@ -759,11 +1376,20 @@ export interface AudioVisualizationData {
   sampleRate: number;
   // Total duration in seconds
   durationSeconds: number;
-  // Noise-floor calibration data (for debugging/visualization)
+  // Noise-floor calibration data (enhanced with spectral analysis)
   noiseFloorCalibration?: {
     noiseFloorMean: number;
     eventThreshold: number;
     calibrationWindows: number;
+    // NG-HARDEN-03 additions
+    frequencyWeightedNoiseFloor?: number;
+    baselineSfm?: number;
+    isAirNoiseBaseline?: boolean;
+  };
+  // Spectral analysis summary (NG-HARDEN-03)
+  spectralAnalysis?: {
+    isDominatedByAirNoise: boolean;
+    baselineSfm: number;
   };
 }
 
@@ -812,17 +1438,38 @@ export function getVisualizationData(
   const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // NOISE-FLOOR CALIBRATION (3-second window)
+  // DEEP SPECTRAL HARDENING - AIR NOISE DETECTION (NG-HARDEN-03)
   // ══════════════════════════════════════════════════════════════════════════════
-  const noiseFloor = computeNoiseFloor(energyValues, sampleRate);
+  const isDominatedByAirNoise = isRecordingDominatedByAirNoise(filteredSamples, sampleRate);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // FREQUENCY-WEIGHTED NOISE-FLOOR CALIBRATION (3-second window)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const noiseFloor = computeNoiseFloor(energyValues, filteredSamples, sampleRate);
 
   // Detect events using calibrated threshold
   let events = detectEvents(energyValues, noiseFloor.eventThreshold);
 
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
-  // ══════════════════════════════════════════════════════════════════════════════
-  events = events.filter((event) => !isBreathLikeEvent(event, energyValues));
+  // Apply all filters unless recording is air noise dominated
+  if (!isDominatedByAirNoise && !noiseFloor.isAirNoiseBaseline) {
+    // ══════════════════════════════════════════════════════════════════════════════
+    // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
+    // ══════════════════════════════════════════════════════════════════════════════
+    events = events.filter((event) => !isBreathLikeEvent(event, energyValues));
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // DEEP SPECTRAL VETO (NG-HARDEN-03)
+    // ══════════════════════════════════════════════════════════════════════════════
+    events = events.filter((event) => !isSpectrallyNoise(
+      filteredSamples,
+      event,
+      windowSizeSamples,
+      sampleRate
+    ));
+  } else {
+    // Air noise dominated - no valid events
+    events = [];
+  }
 
   // Convert window indices to time in seconds
   const windowDurationSeconds = CONFIG.windowSizeMs / 1000;
@@ -840,11 +1487,324 @@ export function getVisualizationData(
     windowSizeMs: CONFIG.windowSizeMs,
     sampleRate,
     durationSeconds,
-    // Include calibration data for debugging/visualization
+    // Include calibration data for debugging/visualization (NG-HARDEN-03 enhanced)
     noiseFloorCalibration: {
       noiseFloorMean: noiseFloor.noiseFloorMean,
       eventThreshold: noiseFloor.eventThreshold,
       calibrationWindows: noiseFloor.calibrationWindows,
+      frequencyWeightedNoiseFloor: noiseFloor.frequencyWeightedNoiseFloor,
+      baselineSfm: noiseFloor.baselineSfm,
+      isAirNoiseBaseline: noiseFloor.isAirNoiseBaseline,
+    },
+    // Spectral analysis summary (NG-HARDEN-03)
+    spectralAnalysis: {
+      isDominatedByAirNoise,
+      baselineSfm: noiseFloor.baselineSfm,
     },
   };
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// SIMULATION & VALIDATION UTILITIES (NG-HARDEN-03)
+// For verifying spectral hardening against known noise patterns
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generate synthetic white noise (air hiss simulation)
+ *
+ * Creates flat-spectrum noise with uniform random values,
+ * simulating constant air flow or fan noise.
+ *
+ * @param durationSeconds - Duration of noise to generate
+ * @param sampleRate - Sample rate (default 44100)
+ * @param amplitude - Peak amplitude (default 0.3)
+ * @returns Array of noise samples
+ */
+export function generateWhiteNoise(
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate,
+  amplitude: number = 0.3
+): number[] {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const samples: number[] = [];
+
+  for (let i = 0; i < numSamples; i++) {
+    // Uniform random noise between -amplitude and +amplitude
+    samples.push((Math.random() * 2 - 1) * amplitude);
+  }
+
+  return samples;
+}
+
+/**
+ * Generate synthetic breath noise
+ *
+ * Creates noise with breath-like characteristics:
+ * - 800ms duration bursts
+ * - Gradual onset/offset
+ * - Flat spectrum (white noise modulated by envelope)
+ *
+ * @param durationSeconds - Total duration
+ * @param sampleRate - Sample rate
+ * @param breathCount - Number of breath events
+ * @returns Array of breath noise samples
+ */
+export function generateBreathNoise(
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate,
+  breathCount: number = 3
+): number[] {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const samples: number[] = new Array(numSamples).fill(0);
+
+  const breathDurationSamples = Math.floor(0.8 * sampleRate); // 800ms
+  const spacing = Math.floor(numSamples / (breathCount + 1));
+
+  for (let b = 0; b < breathCount; b++) {
+    const startSample = spacing * (b + 1);
+
+    for (let i = 0; i < breathDurationSamples; i++) {
+      if (startSample + i < numSamples) {
+        // Gradual envelope: ramp up, sustain, ramp down
+        const progress = i / breathDurationSamples;
+        let envelope: number;
+
+        if (progress < 0.2) {
+          // Ramp up (0 to 0.2)
+          envelope = progress / 0.2;
+        } else if (progress > 0.8) {
+          // Ramp down (0.8 to 1.0)
+          envelope = (1 - progress) / 0.2;
+        } else {
+          // Sustain
+          envelope = 1.0;
+        }
+
+        // White noise modulated by envelope
+        samples[startSample + i] = (Math.random() * 2 - 1) * 0.2 * envelope;
+      }
+    }
+  }
+
+  return samples;
+}
+
+/**
+ * Generate synthetic gut sound
+ *
+ * Creates signal with gut sound characteristics:
+ * - Short bursts (100-300ms)
+ * - Sharp transients
+ * - Energy concentrated in 100-500 Hz band
+ *
+ * @param durationSeconds - Total duration
+ * @param sampleRate - Sample rate
+ * @param eventCount - Number of gut sound events
+ * @returns Array of gut sound samples
+ */
+export function generateGutSound(
+  durationSeconds: number,
+  sampleRate: number = CONFIG.sampleRate,
+  eventCount: number = 5
+): number[] {
+  const numSamples = Math.floor(durationSeconds * sampleRate);
+  const samples: number[] = new Array(numSamples).fill(0);
+
+  // Add low-level background noise
+  for (let i = 0; i < numSamples; i++) {
+    samples[i] = (Math.random() * 2 - 1) * 0.01;
+  }
+
+  const spacing = Math.floor(numSamples / (eventCount + 1));
+
+  for (let e = 0; e < eventCount; e++) {
+    const startSample = spacing * (e + 1);
+    const eventDuration = Math.floor((0.1 + Math.random() * 0.2) * sampleRate); // 100-300ms
+
+    // Generate gut sound as sum of low-frequency components
+    const frequencies = [150, 200, 280, 350]; // Gut sound frequencies
+
+    for (let i = 0; i < eventDuration; i++) {
+      if (startSample + i < numSamples) {
+        const t = i / sampleRate;
+
+        // Sharp attack envelope
+        const progress = i / eventDuration;
+        let envelope: number;
+        if (progress < 0.1) {
+          envelope = progress / 0.1; // Fast attack
+        } else {
+          envelope = Math.exp(-(progress - 0.1) * 3); // Exponential decay
+        }
+
+        // Sum of sinusoids with some irregularity
+        let sample = 0;
+        for (const freq of frequencies) {
+          const phase = Math.random() * Math.PI * 2;
+          sample += Math.sin(2 * Math.PI * freq * t + phase) * (0.5 + Math.random() * 0.5);
+        }
+
+        samples[startSample + i] += sample * envelope * 0.15;
+      }
+    }
+  }
+
+  return samples;
+}
+
+/**
+ * Simulation result from spectral hardening validation
+ */
+export interface SimulationResult {
+  scenario: string;
+  description: string;
+  expectedMotilityIndex: number;
+  actualMotilityIndex: number;
+  expectedEventsPerMinute: number;
+  actualEventsPerMinute: number;
+  passed: boolean;
+  spectralAnalysis: {
+    sfm: number;
+    bowelPeakRatio: number;
+    zcr: number;
+    isDominatedByAirNoise: boolean;
+  };
+}
+
+/**
+ * Run simulation to validate spectral hardening
+ *
+ * Tests the audio analytics against known synthetic signals
+ * to verify air noise and breath artifacts are correctly rejected.
+ *
+ * @returns Array of simulation results
+ */
+export function runSpectralHardeningSimulation(): SimulationResult[] {
+  const results: SimulationResult[] = [];
+  const durationSeconds = 10; // 10 second test recordings
+  const sampleRate = CONFIG.sampleRate;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SCENARIO 1: Constant Air Noise (White Noise)
+  // Expected: motilityIndex = 0, eventsPerMinute = 0
+  // ══════════════════════════════════════════════════════════════════════════════
+  const whiteNoiseSamples = generateWhiteNoise(durationSeconds, sampleRate, 0.3);
+  const whiteNoiseAnalysis = analyzeAudioSamples(whiteNoiseSamples, durationSeconds, sampleRate);
+
+  // Analyze spectrum for reporting
+  const whiteNoiseSpectral = analyzeWindowSpectrum(
+    whiteNoiseSamples.slice(0, CONFIG.fftWindowSize),
+    sampleRate
+  );
+
+  results.push({
+    scenario: "CONSTANT_AIR_NOISE",
+    description: "White noise simulating constant air flow / fan",
+    expectedMotilityIndex: 0,
+    actualMotilityIndex: whiteNoiseAnalysis.motilityIndex,
+    expectedEventsPerMinute: 0,
+    actualEventsPerMinute: whiteNoiseAnalysis.eventsPerMinute,
+    passed: whiteNoiseAnalysis.motilityIndex === 0 && whiteNoiseAnalysis.eventsPerMinute === 0,
+    spectralAnalysis: {
+      sfm: whiteNoiseSpectral.sfm,
+      bowelPeakRatio: whiteNoiseSpectral.bowelPeakRatio,
+      zcr: whiteNoiseSpectral.zcr,
+      isDominatedByAirNoise: whiteNoiseSpectral.isWhiteNoise,
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SCENARIO 2: Breath Noise Bursts
+  // Expected: motilityIndex = 0, eventsPerMinute = 0
+  // ══════════════════════════════════════════════════════════════════════════════
+  const breathNoiseSamples = generateBreathNoise(durationSeconds, sampleRate, 5);
+  const breathNoiseAnalysis = analyzeAudioSamples(breathNoiseSamples, durationSeconds, sampleRate);
+
+  const breathNoiseSpectral = analyzeWindowSpectrum(
+    breathNoiseSamples.slice(0, CONFIG.fftWindowSize),
+    sampleRate
+  );
+
+  results.push({
+    scenario: "BREATH_NOISE_BURSTS",
+    description: "Breath-like noise bursts (800ms, gradual onset)",
+    expectedMotilityIndex: 0,
+    actualMotilityIndex: breathNoiseAnalysis.motilityIndex,
+    expectedEventsPerMinute: 0,
+    actualEventsPerMinute: breathNoiseAnalysis.eventsPerMinute,
+    passed: breathNoiseAnalysis.motilityIndex === 0 && breathNoiseAnalysis.eventsPerMinute === 0,
+    spectralAnalysis: {
+      sfm: breathNoiseSpectral.sfm,
+      bowelPeakRatio: breathNoiseSpectral.bowelPeakRatio,
+      zcr: breathNoiseSpectral.zcr,
+      isDominatedByAirNoise: breathNoiseSpectral.isWhiteNoise,
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SCENARIO 3: Valid Gut Sounds
+  // Expected: motilityIndex > 0, eventsPerMinute > 0
+  // ══════════════════════════════════════════════════════════════════════════════
+  const gutSoundSamples = generateGutSound(durationSeconds, sampleRate, 8);
+  const gutSoundAnalysis = analyzeAudioSamples(gutSoundSamples, durationSeconds, sampleRate);
+
+  const gutSoundSpectral = analyzeWindowSpectrum(
+    gutSoundSamples.slice(0, CONFIG.fftWindowSize),
+    sampleRate
+  );
+
+  results.push({
+    scenario: "VALID_GUT_SOUNDS",
+    description: "Synthetic gut sounds (100-500Hz, sharp transients)",
+    expectedMotilityIndex: -1, // Any value > 0 is acceptable
+    actualMotilityIndex: gutSoundAnalysis.motilityIndex,
+    expectedEventsPerMinute: -1, // Any value > 0 is acceptable
+    actualEventsPerMinute: gutSoundAnalysis.eventsPerMinute,
+    passed: gutSoundAnalysis.motilityIndex > 0 || gutSoundAnalysis.eventsPerMinute > 0,
+    spectralAnalysis: {
+      sfm: gutSoundSpectral.sfm,
+      bowelPeakRatio: gutSoundSpectral.bowelPeakRatio,
+      zcr: gutSoundSpectral.zcr,
+      isDominatedByAirNoise: gutSoundSpectral.isWhiteNoise,
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SCENARIO 4: Mixed Signal (Air + Gut)
+  // Expected: Only gut sound events detected, air noise rejected
+  // ══════════════════════════════════════════════════════════════════════════════
+  const mixedSamples = generateGutSound(durationSeconds, sampleRate, 5);
+  const airSamples = generateWhiteNoise(durationSeconds, sampleRate, 0.05);
+  for (let i = 0; i < mixedSamples.length; i++) {
+    mixedSamples[i] += airSamples[i];
+  }
+  const mixedAnalysis = analyzeAudioSamples(mixedSamples, durationSeconds, sampleRate);
+
+  const mixedSpectral = analyzeWindowSpectrum(
+    mixedSamples.slice(0, CONFIG.fftWindowSize),
+    sampleRate
+  );
+
+  results.push({
+    scenario: "MIXED_SIGNAL",
+    description: "Gut sounds with background air noise",
+    expectedMotilityIndex: -1, // Any value > 0 is acceptable
+    actualMotilityIndex: mixedAnalysis.motilityIndex,
+    expectedEventsPerMinute: -1, // Should detect gut sounds
+    actualEventsPerMinute: mixedAnalysis.eventsPerMinute,
+    passed: mixedAnalysis.eventsPerMinute > 0, // Should still detect gut sounds
+    spectralAnalysis: {
+      sfm: mixedSpectral.sfm,
+      bowelPeakRatio: mixedSpectral.bowelPeakRatio,
+      zcr: mixedSpectral.zcr,
+      isDominatedByAirNoise: mixedSpectral.isWhiteNoise,
+    },
+  });
+
+  return results;
+}
+
+/**
+ * Export analyzeWindowSpectrum for external testing (NG-HARDEN-03)
+ */
+export { analyzeWindowSpectrum };
