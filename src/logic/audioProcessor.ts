@@ -260,11 +260,18 @@ export function calibrateAmbientNoiseFloor(
   // Adaptive threshold: anfMean + multiplier * stdDev
   const adaptiveThreshold = anfMean + config.anfThresholdMultiplier * anfStdDev;
 
-  // Estimate SNR (assuming peak signal is ~10x noise floor)
-  const estimatedSignalPower = anfMean * 10;
-  const noisePower = anfMean;
-  const estimatedSNR =
-    noisePower > 0 ? 10 * Math.log10(estimatedSignalPower / noisePower) : 0;
+  // NG-HARDEN-05 BUG FIX: Calculate actual SNR from peak signal vs noise floor
+  // Find actual peak RMS in calibration window (represents signal + noise)
+  const peakRms = Math.max(...rmsValues);
+  // Use minimum RMS as better estimate of pure noise floor
+  const minRms = Math.min(...rmsValues);
+  // Noise power is square of noise floor RMS
+  const noisePower = minRms > 0 ? minRms * minRms : anfMean * anfMean;
+  // Signal power from peak (peak^2 - noise^2, clamped positive)
+  const peakPower = peakRms * peakRms;
+  const signalPower = Math.max(peakPower - noisePower, noisePower * 0.01);
+  // SNR in dB: 10 * log10(signal / noise)
+  const estimatedSNR = noisePower > 0 ? 10 * Math.log10(signalPower / noisePower) : 0;
 
   // Detect constant hum frequencies via simple spectral analysis
   const detectedHumFrequencies = detectConstantHums(calibrationData, sampleRate);

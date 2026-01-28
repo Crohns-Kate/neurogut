@@ -1649,7 +1649,7 @@ export function analyzeAudioSamples(
     // 2. Apply tightened bandpass filter (100-450 Hz)
     // ══════════════════════════════════════════════════════════════════════════════
 
-    // Use ANF calibration result from initialization
+    // Use ANF calibration result from initialization above
     let processedSamples = samples;
 
     if (anfCalibrationResult.detectedHumFrequencies.length > 0) {
@@ -1828,7 +1828,7 @@ export function analyzeAudioSamples(
 
   const activeFraction = totalWindows > 0 ? activeWindows / totalWindows : 0;
 
-  // NG-HARDEN-05: Get signal quality from ANF calibration (now always available)
+  // NG-HARDEN-05: Get signal quality from ANF calibration
   const signalQuality: SignalQuality = anfCalibrationResult.signalQuality;
   const snrDb = anfCalibrationResult.estimatedSNR;
   const isReliable = signalQuality !== "poor";
