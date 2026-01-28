@@ -502,6 +502,57 @@
       "priority": 10,
       "passes": true,
       "notes": "NG-MASTER-INTEGRATION complete. PlacementGuide with 3-step LRQ guidance and 5-sec signal check. VagalRescue modal for motility=0 or VRS<20 with warm water/humming options. Health correlation in scoringEngine with sleep/activity impact functions. VideoTutorial placeholder supporting video/GIF/static modes. .cursorrules with Ralph execution loop. Data isolation verified intact. TypeScript passes."
+    },
+    {
+      "id": "NG-HARDEN-02",
+      "title": "Noise-Floor Calibration & Breath Veto Hardening",
+      "missionStatement": "Improve audio analytics precision by establishing ambient baseline in first 3 seconds and filtering out breath artifacts (600-1000ms duration with gradual onset) to reduce false positive gut sound detections.",
+      "description": "Precision hardening of audioAnalytics.ts with 3-second noise-floor calibration and 800ms temporal veto for air/breath events.",
+      "features": {
+        "noiseFloorCalibration": {
+          "description": "Establish ambient baseline before detecting gut events",
+          "calibrationDuration": "3 seconds",
+          "thresholdMultiplier": 2.0,
+          "calculation": "noiseFloorMean + 2.0 * noiseFloorStdDev",
+          "fallback": "If < 5 windows available, uses full recording stats"
+        },
+        "breathVeto": {
+          "description": "Filter out breath artifacts that create false positives",
+          "durationRange": "600-1000ms (centered on 800ms)",
+          "onsetSlopeThreshold": 3.0,
+          "characteristics": [
+            "Duration in breath range (600-1000ms)",
+            "Gradual onset (slope ratio < 3.0)",
+            "Gradual offset (energy doesn't drop > 80% abruptly)"
+          ]
+        },
+        "bugFix": {
+          "description": "Fixed detectFlatNoise → detectNoSkinContact function call"
+        }
+      },
+      "definitionOfDone": [
+        "3-second calibration window extracts noise floor from initial samples",
+        "Event threshold calculated as noiseFloorMean + 2.0 * noiseFloorStdDev",
+        "Breath veto filters events with 600-1000ms duration and gradual onset",
+        "Both analyzeAudioSamples() and getVisualizationData() use new features",
+        "detectFlatNoise bug fixed (now calls detectNoSkinContact)",
+        "TypeScript check passes with zero errors"
+      ],
+      "constraints": [
+        "Must not break existing session analytics backward compatibility",
+        "Must maintain patient data isolation",
+        "All calculations must be deterministic and reproducible"
+      ],
+      "acceptanceCriteria": [
+        "computeNoiseFloor() returns calibration data from first 3 seconds",
+        "isBreathLikeEvent() correctly identifies breath artifacts",
+        "Events with breath profile are filtered from final results",
+        "AudioVisualizationData includes noiseFloorCalibration field",
+        "Typecheck passes (npx tsc)"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "NG-HARDEN-02 complete. Fixed detectFlatNoise bug. Implemented 3-second noise-floor calibration with computeNoiseFloor() function. Implemented 800ms breath veto with isBreathLikeEvent() function. Both analyzeAudioSamples() and getVisualizationData() updated. TypeScript passes."
     }
   ]
 }

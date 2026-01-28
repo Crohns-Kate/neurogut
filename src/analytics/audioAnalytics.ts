@@ -43,6 +43,31 @@ const CONFIG = {
   bandpassLowHz: 150,
   bandpassHighHz: 1000,
   rejectAboveHz: 1200,
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // NOISE-FLOOR CALIBRATION (3-second window)
+  // ══════════════════════════════════════════════════════════════════════════════
+  // Duration in seconds for initial noise-floor calibration
+  // The first 3 seconds establish ambient baseline before event detection
+  calibrationDurationSeconds: 3,
+  // Multiplier above calibrated noise floor for event threshold
+  // Events must exceed: noiseFloor + (calibratedThresholdMultiplier * noiseFloorStdDev)
+  calibratedThresholdMultiplier: 2.0,
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
+  // ══════════════════════════════════════════════════════════════════════════════
+  // Breath sounds typically last 600-1000ms with gradual onset/offset
+  // Events matching this profile are vetoed as non-gut artifacts
+  breathVetoMinMs: 600,
+  breathVetoMaxMs: 1000,
+  breathVetoCenterMs: 800,
+  // Maximum slope ratio (peak/onset energy) for breath detection
+  // Breath has gradual onset; gut sounds have sharp transients
+  // Ratio < 3.0 indicates gradual onset (breath-like)
+  breathOnsetSlopeThreshold: 3.0,
+  // Minimum number of windows for breath onset/offset analysis
+  breathOnsetWindows: 3,
 };
 
 /**
@@ -154,6 +179,170 @@ function stdDev(values: number[]): number {
 }
 
 /**
+ * Noise-floor calibration result from initial 3-second window
+ */
+interface NoiseFloorCalibration {
+  /** Mean RMS energy during calibration period */
+  noiseFloorMean: number;
+  /** Standard deviation of RMS energy during calibration */
+  noiseFloorStdDev: number;
+  /** Calculated threshold for event detection (mean + multiplier * stdDev) */
+  eventThreshold: number;
+  /** Number of windows used for calibration */
+  calibrationWindows: number;
+}
+
+/**
+ * Compute noise-floor calibration from the first 3 seconds of audio
+ *
+ * This establishes the ambient baseline energy level before detecting gut events.
+ * The calibration window captures room noise, HVAC, and any constant background.
+ * Events are then detected relative to this calibrated baseline, not the full
+ * recording average, which improves accuracy in varying acoustic environments.
+ *
+ * @param energyValues - Windowed RMS energy values for entire recording
+ * @param sampleRate - Audio sample rate
+ * @returns NoiseFloorCalibration with threshold for event detection
+ */
+function computeNoiseFloor(
+  energyValues: number[],
+  sampleRate: number = CONFIG.sampleRate
+): NoiseFloorCalibration {
+  // Calculate how many windows fit in the calibration period
+  const windowsPerSecond = 1000 / CONFIG.windowSizeMs;
+  const calibrationWindows = Math.floor(
+    CONFIG.calibrationDurationSeconds * windowsPerSecond
+  );
+
+  // Use available windows if recording is shorter than calibration period
+  const actualCalibrationWindows = Math.min(calibrationWindows, energyValues.length);
+
+  if (actualCalibrationWindows < 5) {
+    // Fallback: not enough data for calibration, use full recording stats
+    const noiseFloorMean = mean(energyValues);
+    const noiseFloorStdDev = stdDev(energyValues);
+    return {
+      noiseFloorMean,
+      noiseFloorStdDev,
+      eventThreshold: noiseFloorMean + CONFIG.thresholdMultiplier * noiseFloorStdDev,
+      calibrationWindows: actualCalibrationWindows,
+    };
+  }
+
+  // Extract calibration window (first 3 seconds)
+  const calibrationEnergies = energyValues.slice(0, actualCalibrationWindows);
+
+  const noiseFloorMean = mean(calibrationEnergies);
+  const noiseFloorStdDev = stdDev(calibrationEnergies);
+
+  // Event threshold: noise floor + calibrated multiplier * noise stdDev
+  // Using calibratedThresholdMultiplier (2.0) which is tighter than
+  // the general thresholdMultiplier (2.5) since we have a precise baseline
+  const eventThreshold =
+    noiseFloorMean + CONFIG.calibratedThresholdMultiplier * noiseFloorStdDev;
+
+  return {
+    noiseFloorMean,
+    noiseFloorStdDev,
+    eventThreshold,
+    calibrationWindows: actualCalibrationWindows,
+  };
+}
+
+/**
+ * Determine if an event matches the breath/air artifact profile
+ *
+ * Breath sounds have distinct characteristics:
+ * 1. Duration: 600-1000ms (centered around 800ms)
+ * 2. Gradual onset: Energy ramps up slowly (not sharp transient)
+ * 3. Gradual offset: Energy fades out slowly
+ * 4. Relatively uniform energy distribution across the event
+ *
+ * Gut sounds are different:
+ * - Shorter bursts (< 500ms typically)
+ * - Sharp onset (high transient)
+ * - Irregular energy distribution (gurgling, borborygmi)
+ *
+ * @param event - Detected event to analyze
+ * @param energyValues - Full energy array for onset/offset analysis
+ * @returns true if event matches breath profile (should be vetoed)
+ */
+function isBreathLikeEvent(
+  event: DetectedEvent,
+  energyValues: number[]
+): boolean {
+  // Calculate event duration in milliseconds
+  const eventDurationWindows = event.endWindow - event.startWindow + 1;
+  const eventDurationMs = eventDurationWindows * CONFIG.windowSizeMs;
+
+  // CHECK 1: Duration must be in breath range (600-1000ms)
+  if (eventDurationMs < CONFIG.breathVetoMinMs || eventDurationMs > CONFIG.breathVetoMaxMs) {
+    return false; // Not breath duration range
+  }
+
+  // CHECK 2: Analyze onset slope (gradual vs sharp)
+  // Breath has gradual onset; gut sounds have sharp transients
+  const onsetWindows = Math.min(CONFIG.breathOnsetWindows, eventDurationWindows);
+  if (onsetWindows < 2) {
+    return false; // Too short to analyze onset
+  }
+
+  // Get onset energy values (first few windows of event)
+  const onsetEnergies: number[] = [];
+  for (let i = 0; i < onsetWindows; i++) {
+    const idx = event.startWindow + i;
+    if (idx < energyValues.length) {
+      onsetEnergies.push(energyValues[idx]);
+    }
+  }
+
+  if (onsetEnergies.length < 2) {
+    return false;
+  }
+
+  // Calculate onset slope ratio: peak / initial
+  // Low ratio (< 3.0) = gradual onset (breath-like)
+  // High ratio (> 3.0) = sharp transient (gut sound)
+  const initialOnsetEnergy = onsetEnergies[0];
+  const peakOnsetEnergy = Math.max(...onsetEnergies);
+
+  if (initialOnsetEnergy <= 0) {
+    return false; // Avoid division by zero
+  }
+
+  const onsetSlopeRatio = peakOnsetEnergy / initialOnsetEnergy;
+
+  // CHECK 3: Analyze offset slope (gradual fade)
+  const offsetWindows = Math.min(CONFIG.breathOnsetWindows, eventDurationWindows);
+  const offsetEnergies: number[] = [];
+  for (let i = 0; i < offsetWindows; i++) {
+    const idx = event.endWindow - offsetWindows + 1 + i;
+    if (idx >= 0 && idx < energyValues.length) {
+      offsetEnergies.push(energyValues[idx]);
+    }
+  }
+
+  let hasGradualOffset = false;
+  if (offsetEnergies.length >= 2) {
+    // Check if energy decreases gradually (not abrupt cutoff)
+    const offsetStart = offsetEnergies[0];
+    const offsetEnd = offsetEnergies[offsetEnergies.length - 1];
+    // Gradual offset: energy decreases by less than 80% abruptly
+    hasGradualOffset = offsetEnd > offsetStart * 0.2;
+  }
+
+  // VETO DECISION:
+  // Event is breath-like if:
+  // - Duration is in breath range (already checked)
+  // - Onset is gradual (slope ratio < threshold)
+  // - Offset is gradual (optional but strengthens decision)
+  const hasGradualOnset = onsetSlopeRatio < CONFIG.breathOnsetSlopeThreshold;
+
+  // Require gradual onset; gradual offset is supporting evidence
+  return hasGradualOnset && hasGradualOffset;
+}
+
+/**
  * Compute windowed RMS energy values from raw audio samples
  */
 function computeWindowedEnergy(
@@ -175,14 +364,27 @@ function computeWindowedEnergy(
 
 /**
  * Detect events from windowed energy values using adaptive thresholding
+ *
+ * @param energyValues - Windowed RMS energy values
+ * @param calibratedThreshold - Optional pre-computed threshold from noise-floor calibration.
+ *                              If not provided, falls back to full-recording adaptive threshold.
  */
-function detectEvents(energyValues: number[]): DetectedEvent[] {
+function detectEvents(
+  energyValues: number[],
+  calibratedThreshold?: number
+): DetectedEvent[] {
   if (energyValues.length === 0) return [];
 
-  // Calculate adaptive threshold based on signal statistics
-  const avgEnergy = mean(energyValues);
-  const energyStdDev = stdDev(energyValues);
-  const threshold = avgEnergy + CONFIG.thresholdMultiplier * energyStdDev;
+  // Use calibrated threshold if provided, otherwise compute from full recording
+  let threshold: number;
+  if (calibratedThreshold !== undefined && calibratedThreshold > 0) {
+    threshold = calibratedThreshold;
+  } else {
+    // Fallback: Calculate adaptive threshold based on full signal statistics
+    const avgEnergy = mean(energyValues);
+    const energyStdDev = stdDev(energyValues);
+    threshold = avgEnergy + CONFIG.thresholdMultiplier * energyStdDev;
+  }
 
   // Find windows above threshold
   const aboveThreshold = energyValues.map((e) => e > threshold);
@@ -428,8 +630,8 @@ export function analyzeAudioSamples(
   const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
   // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
-  const isFlatNoise = detectFlatNoise(energyValues);
-  if (isFlatNoise) {
+  const noSkinContact = detectNoSkinContact(energyValues);
+  if (noSkinContact) {
     // Return zero motility for flat noise (phone on table, no skin contact)
     return {
       eventsPerMinute: 0,
@@ -441,8 +643,20 @@ export function analyzeAudioSamples(
     };
   }
 
-  // Detect events
-  const events = detectEvents(energyValues);
+  // ══════════════════════════════════════════════════════════════════════════════
+  // NOISE-FLOOR CALIBRATION (3-second window)
+  // Establish ambient baseline from first 3 seconds before event detection
+  // ══════════════════════════════════════════════════════════════════════════════
+  const noiseFloor = computeNoiseFloor(energyValues, sampleRate);
+
+  // Detect events using calibrated threshold
+  let events = detectEvents(energyValues, noiseFloor.eventThreshold);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
+  // Filter out events matching breath artifact profile (600-1000ms, gradual onset)
+  // ══════════════════════════════════════════════════════════════════════════════
+  events = events.filter((event) => !isBreathLikeEvent(event, energyValues));
 
   // Calculate metrics
   const durationMinutes = durationSeconds / 60;
@@ -545,6 +759,12 @@ export interface AudioVisualizationData {
   sampleRate: number;
   // Total duration in seconds
   durationSeconds: number;
+  // Noise-floor calibration data (for debugging/visualization)
+  noiseFloorCalibration?: {
+    noiseFloorMean: number;
+    eventThreshold: number;
+    calibrationWindows: number;
+  };
 }
 
 /**
@@ -591,8 +811,18 @@ export function getVisualizationData(
   // Compute windowed energy from FILTERED samples
   const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
-  // Detect events
-  const events = detectEvents(energyValues);
+  // ══════════════════════════════════════════════════════════════════════════════
+  // NOISE-FLOOR CALIBRATION (3-second window)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const noiseFloor = computeNoiseFloor(energyValues, sampleRate);
+
+  // Detect events using calibrated threshold
+  let events = detectEvents(energyValues, noiseFloor.eventThreshold);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
+  // ══════════════════════════════════════════════════════════════════════════════
+  events = events.filter((event) => !isBreathLikeEvent(event, energyValues));
 
   // Convert window indices to time in seconds
   const windowDurationSeconds = CONFIG.windowSizeMs / 1000;
@@ -610,5 +840,11 @@ export function getVisualizationData(
     windowSizeMs: CONFIG.windowSizeMs,
     sampleRate,
     durationSeconds,
+    // Include calibration data for debugging/visualization
+    noiseFloorCalibration: {
+      noiseFloorMean: noiseFloor.noiseFloorMean,
+      eventThreshold: noiseFloor.eventThreshold,
+      calibrationWindows: noiseFloor.calibrationWindows,
+    },
   };
 }

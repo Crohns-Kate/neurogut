@@ -1163,3 +1163,127 @@ All new components follow existing patterns:
 ### 8. BUILD VERIFICATION
 - TypeScript: `npx tsc --noEmit` — **PASS** (0 errors)
 ---
+
+## 2026-01-27 — NG-HARDEN-02: Noise-Floor Calibration & Breath Veto
+
+### MISSION OVERVIEW
+Precision hardening of audio analytics to reduce false positives from ambient noise and breath artifacts.
+
+### 1. BUG FIX: detectFlatNoise → detectNoSkinContact
+**Issue**: Line 431 called `detectFlatNoise()` but the function was actually named `detectNoSkinContact()`.
+**Resolution**: Corrected function call to use proper name.
+
+### 2. 3-SECOND NOISE-FLOOR CALIBRATION
+**Purpose**: Establish ambient baseline before detecting gut events, improving accuracy in varying acoustic environments.
+
+**Implementation** (`src/analytics/audioAnalytics.ts`):
+- New config constants:
+  - `calibrationDurationSeconds: 3` — Duration of calibration window
+  - `calibratedThresholdMultiplier: 2.0` — Tighter threshold when calibrated baseline available
+
+- New interface: `NoiseFloorCalibration`
+  - `noiseFloorMean` — Mean RMS energy during first 3 seconds
+  - `noiseFloorStdDev` — Standard deviation during calibration
+  - `eventThreshold` — Calculated threshold for event detection
+  - `calibrationWindows` — Number of windows used
+
+- New function: `computeNoiseFloor(energyValues, sampleRate)`
+  - Extracts first 3 seconds of audio as calibration window
+  - Calculates mean and stdDev of energy values
+  - Returns threshold: `noiseFloorMean + calibratedThresholdMultiplier * noiseFloorStdDev`
+  - Fallback: If < 5 windows available, uses full recording stats
+
+**Integration**:
+- `detectEvents()` now accepts optional `calibratedThreshold` parameter
+- `analyzeAudioSamples()` calls `computeNoiseFloor()` before event detection
+- `getVisualizationData()` also uses calibrated threshold for consistency
+- `AudioVisualizationData` interface extended with optional `noiseFloorCalibration` field
+
+### 3. 800ms TEMPORAL VETO FOR AIR/BREATH
+**Purpose**: Filter out breath artifacts that create false positive events.
+
+**Breath Sound Characteristics**:
+- Duration: 600-1000ms (centered on 800ms)
+- Gradual onset (energy ramps up slowly)
+- Gradual offset (energy fades out slowly)
+- Low slope ratio (peak/initial energy < 3.0)
+
+**Gut Sound Characteristics** (NOT filtered):
+- Shorter bursts (< 500ms typically)
+- Sharp onset (high transient)
+- Irregular energy distribution
+
+**Implementation**:
+- New config constants:
+  - `breathVetoMinMs: 600` — Minimum duration for breath detection
+  - `breathVetoMaxMs: 1000` — Maximum duration for breath detection
+  - `breathVetoCenterMs: 800` — Typical breath duration
+  - `breathOnsetSlopeThreshold: 3.0` — Ratio below = gradual (breath-like)
+  - `breathOnsetWindows: 3` — Windows for onset/offset analysis
+
+- New function: `isBreathLikeEvent(event, energyValues)`
+  - CHECK 1: Duration in 600-1000ms range
+  - CHECK 2: Gradual onset (slope ratio < 3.0)
+  - CHECK 3: Gradual offset (energy doesn't drop > 80% abruptly)
+  - Returns `true` if all breath characteristics detected
+
+**Integration**:
+- `analyzeAudioSamples()` filters events through `isBreathLikeEvent()` after detection
+- `getVisualizationData()` also applies breath veto for visualization consistency
+
+### 4. ALGORITHM SPECIFICATION (Merryck Audit)
+
+**Noise-Floor Calibration Algorithm**:
+```
+calibration_window = first 3 seconds of recording
+noise_floor_mean = mean(calibration_window energies)
+noise_floor_stddev = stddev(calibration_window energies)
+event_threshold = noise_floor_mean + 2.0 * noise_floor_stddev
+```
+
+**Breath Veto Algorithm**:
+```
+for each detected_event:
+  duration_ms = (end_window - start_window + 1) * 100ms
+  
+  if duration_ms NOT in [600ms, 1000ms]:
+    KEEP event (not breath duration)
+    continue
+  
+  onset_slope_ratio = max(first 3 windows) / first window energy
+  
+  if onset_slope_ratio >= 3.0:
+    KEEP event (sharp transient, not breath)
+    continue
+    
+  offset_ratio = last window / first offset window
+  
+  if offset_ratio < 0.2:
+    KEEP event (abrupt cutoff, not breath)
+    continue
+  
+  VETO event (matches breath profile)
+```
+
+### 5. FILES CHANGED
+- **Modified**: `src/analytics/audioAnalytics.ts`
+  - Fixed `detectFlatNoise` → `detectNoSkinContact` bug
+  - Added noise-floor calibration constants and functions
+  - Added breath veto constants and functions
+  - Updated `detectEvents()` to accept calibrated threshold
+  - Updated `analyzeAudioSamples()` and `getVisualizationData()` to use new features
+  - Extended `AudioVisualizationData` interface
+
+### 6. VERIFICATION
+- TypeScript: `npx tsc --noEmit` — **PASS** (0 errors)
+- Bug fix: `detectFlatNoise` call corrected
+- Noise-floor calibration: First 3 seconds establish baseline
+- Breath veto: Events with 600-1000ms duration and gradual onset filtered
+
+### 7. DATA ISOLATION
+**Status**: INTACT — No changes to patient data access patterns.
+
+### COMMIT
+- Message: "feat(audioAnalytics): Harden with 3s noise-floor calibration and 800ms breath veto"
+- Co-Authored-By: Claude Opus 4.5
+---
