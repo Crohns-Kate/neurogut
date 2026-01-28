@@ -260,18 +260,23 @@ export function calibrateAmbientNoiseFloor(
   // Adaptive threshold: anfMean + multiplier * stdDev
   const adaptiveThreshold = anfMean + config.anfThresholdMultiplier * anfStdDev;
 
-  // NG-HARDEN-05 BUG FIX: Calculate actual SNR from peak signal vs noise floor
-  // Find actual peak RMS in calibration window (represents signal + noise)
-  const peakRms = Math.max(...rmsValues);
-  // Use minimum RMS as better estimate of pure noise floor
-  const minRms = Math.min(...rmsValues);
-  // Noise power is square of noise floor RMS
-  const noisePower = minRms > 0 ? minRms * minRms : anfMean * anfMean;
-  // Signal power from peak (peak^2 - noise^2, clamped positive)
-  const peakPower = peakRms * peakRms;
-  const signalPower = Math.max(peakPower - noisePower, noisePower * 0.01);
-  // SNR in dB: 10 * log10(signal / noise)
-  const estimatedSNR = noisePower > 0 ? 10 * Math.log10(signalPower / noisePower) : 0;
+  // ══════════════════════════════════════════════════════════════════════════════
+  // REFERENCE-BASED SNR ESTIMATION
+  // During calibration we measure NOISE, not signal. Low noise = GOOD.
+  // SNR estimates potential for detecting gut sounds against the noise floor.
+  // ══════════════════════════════════════════════════════════════════════════════
+  
+  // Reference gut signal level based on clinical data (typical borborygmi RMS)
+  // Normalized audio: gut sounds typically measure 0.01-0.05 RMS (-40 to -26 dB)
+  const REFERENCE_GUT_SIGNAL_RMS = 0.02; // -34 dB, conservative estimate
+  
+  // SNR = 20 * log10(expectedSignal / noiseFloor)
+  // - Quiet room (anfMean=0.001): SNR = 26 dB (excellent)
+  // - Normal room (anfMean=0.005): SNR = 12 dB (good)  
+  // - Noisy room (anfMean=0.02): SNR = 0 dB (poor)
+  const estimatedSNR = anfMean > 0 
+    ? 20 * Math.log10(REFERENCE_GUT_SIGNAL_RMS / anfMean)
+    : 30; // Silent input defaults to excellent
 
   // Detect constant hum frequencies via simple spectral analysis
   const detectedHumFrequencies = detectConstantHums(calibrationData, sampleRate);
