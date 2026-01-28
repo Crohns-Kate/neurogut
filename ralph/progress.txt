@@ -1497,3 +1497,200 @@ isLikelyGutSound =
 - Message: "feat(audioAnalytics): NG-HARDEN-03 Deep spectral hardening with FFT, SFM, ZCR, and bowel peak isolation"
 - Co-Authored-By: Claude Opus 4.5
 ---
+
+## 2026-01-28 — NG-HARDEN-04: State Machine Integrity & Psychoacoustic Gating
+
+### MISSION OVERVIEW
+State machine integrity to prevent double-loop issues, plus advanced psychoacoustic gating using temporal masking (spectral entropy stationarity) and rhythmic rejection (autocorrelation).
+
+### 1. SESSION STATE MACHINE
+**File**: `src/models/session.ts`
+
+**New Types**:
+```typescript
+export enum SessionState {
+  IDLE = "IDLE",
+  CALIBRATING = "CALIBRATING",
+  READY = "READY",
+  RECORDING = "RECORDING",
+  COMPLETE = "COMPLETE",
+}
+```
+
+**State Transition Rules**:
+```
+IDLE → CALIBRATING → READY → RECORDING → COMPLETE
+       ↓ (fail)
+    IDLE
+```
+
+**Guard Functions**:
+- `isValidStateTransition(currentState, nextState)` - Boolean check
+- `validateStateTransition(currentState, nextState)` - Returns error message or null
+- `VALID_STATE_TRANSITIONS` - Map of valid transitions per state
+
+**Once-and-Done Guard**:
+```typescript
+if (state !== SessionState.IDLE) return; // Prevents double-trigger
+```
+
+### 2. TEMPORAL MASKING (Spectral Entropy Stationarity)
+
+**PSYCHOACOUSTIC PRINCIPLE**:
+- Bowel sounds are NON-STATIONARY (spectrum changes rapidly)
+- Air noise is STATIONARY (spectrum remains constant over time)
+- If spectral entropy stays constant for > 400ms, signal is masked (VRS = 0)
+
+**Spectral Entropy Formula**:
+```
+H = -sum(p * log2(p)) / log2(N)
+
+where:
+- p = normalized power in each frequency bin
+- N = number of frequency bins
+- H ranges from 0 (pure tone) to 1 (white noise)
+```
+
+**Configuration**:
+```
+temporalMaskingWindowMs: 400          // Analysis window
+spectralEntropyVarianceThreshold: 0.05 // Max variance for stationarity
+stationarityConsecutiveWindows: 4      // Windows needed to confirm
+spectralEntropyWhiteNoiseThreshold: 0.9 // High entropy = noise-like
+```
+
+**Implementation** (`detectTemporalStationarity()`):
+1. Compute spectral entropy for each FFT window
+2. Calculate variance of entropy values over time
+3. Count consecutive windows with similar entropy
+4. If low variance + high entropy → Signal is stationary air noise
+
+**Masking Decision**:
+```typescript
+shouldMask = isStationary && isHighEntropy;
+```
+
+### 3. RHYTHMIC REJECTION (Autocorrelation)
+
+**PSYCHOACOUSTIC PRINCIPLE**:
+- Gut sounds are APERIODIC (no regular repetition)
+- Mechanical noise (fans, AC) is PERIODIC (repeats at precise intervals)
+- If autocorrelation detects strong periodicity, classify as "Mechanical Noise"
+
+**Autocorrelation Formula**:
+```
+r(lag) = sum(x[i] * x[i+lag]) / energy
+
+where:
+- x = centered signal (mean removed)
+- lag = time offset in samples
+- r(0) = 1.0 (perfect correlation with self)
+```
+
+**Known Mechanical Noise Patterns**:
+```
+mechanicalNoiseFrequencies: [50, 60, 100, 120]  // Hz (AC mains)
+mechanicalNoisePeriods: [500, 1000, 2000]        // ms (fan cycles)
+periodMatchTolerance: 0.05                        // ±5% tolerance
+```
+
+**Configuration**:
+```
+autocorrelationWindowSize: 4096
+autocorrelationPeriodicityThreshold: 0.6  // High peak = periodic
+```
+
+**Implementation** (`detectRhythmicNoise()`):
+1. Compute autocorrelation from lag 20ms to 2 seconds
+2. Find peak autocorrelation (excluding lag 0)
+3. Check if peak matches known mechanical frequencies/periods
+4. If match found → Classify as mechanical noise
+
+**Veto Decision**:
+```typescript
+shouldVeto = isMechanicalNoise;
+```
+
+### 4. COMBINED PSYCHOACOUSTIC GATING
+
+**Result Interface**:
+```typescript
+export interface PsychoacousticGatingResult {
+  temporalMasking: TemporalMaskingResult;
+  rhythmicRejection: RhythmicRejectionResult;
+  shouldGate: boolean;
+  gatingReason: string | null;
+}
+```
+
+**Gating Logic**:
+```typescript
+shouldGate =
+  temporalMasking.shouldMask ||   // Stationary air noise
+  rhythmicRejection.shouldVeto;   // Mechanical periodic noise
+```
+
+### 5. MOCK SIGNAL VERIFICATION
+
+**File**: `src/analytics/mockSignal.ts`
+
+**Test Scenarios**:
+| Test | Description | Expected VRS |
+|------|-------------|--------------|
+| `WHITE_NOISE_30S` | 30s constant white noise | 0 |
+| `MECHANICAL_NOISE_60HZ` | 30s 60Hz periodic | 0 |
+| `BREATH_NOISE_30S` | 30s with 8 breath events | 0 |
+| `GUT_SOUNDS_30S` | 30s with 15 gut events | > 0 |
+
+**Verification Functions**:
+- `verifyWhiteNoiseProducesZeroVRS()` - Critical gate
+- `verifyMechanicalNoiseProducesZeroVRS()`
+- `verifyBreathNoiseProducesZeroVRS()`
+- `verifyGutSoundsProducePositiveVRS()`
+- `runAllMockSignalTests()` - Full suite
+
+### 6. INTEGRATION INTO ANALYSIS PIPELINE
+
+**Updated `analyzeAudioSamples()` Pipeline**:
+```
+1. applySpectralBandpass()              // Frequency filtering
+2. isRecordingDominatedByAirNoise()     // NG-HARDEN-03
+3. applyPsychoacousticGating()          // NG-HARDEN-04 ← NEW
+4. detectNoSkinContact()                // Flat energy check
+5. computeNoiseFloor()                  // Calibration
+6. detectEvents()                       // Amplitude detection
+7. isBreathLikeEvent()                  // Temporal veto
+8. isSpectrallyNoise()                  // Spectral veto
+```
+
+### 7. FILES CHANGED/CREATED
+
+**Modified**:
+- `src/models/session.ts` - Added SessionState enum and guards
+- `src/analytics/audioAnalytics.ts` - Added psychoacoustic gating
+
+**Created**:
+- `src/analytics/mockSignal.ts` - Mock signal verification suite
+
+### 8. MATHEMATICAL THRESHOLDS SUMMARY
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `temporalMaskingWindowMs` | 400 | Stationarity analysis window |
+| `spectralEntropyVarianceThreshold` | 0.05 | Max variance for stationarity |
+| `stationarityConsecutiveWindows` | 4 | Windows for confirmation |
+| `spectralEntropyWhiteNoiseThreshold` | 0.9 | High entropy threshold |
+| `autocorrelationWindowSize` | 4096 | Autocorrelation window |
+| `autocorrelationPeriodicityThreshold` | 0.6 | Periodicity detection |
+| `periodMatchTolerance` | 0.05 | ±5% period matching |
+
+### 9. BUILD VERIFICATION
+- TypeScript: `npx tsc --noEmit` — **PASS** (0 errors)
+
+### 10. DATA ISOLATION
+**Status**: INTACT — No changes to patient data access patterns.
+
+### COMMIT
+- Message: "feat: NG-HARDEN-04 State machine integrity and psychoacoustic gating"
+- Co-Authored-By: Claude Opus 4.5
+---

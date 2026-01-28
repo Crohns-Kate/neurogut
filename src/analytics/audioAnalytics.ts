@@ -118,6 +118,42 @@ const CONFIG = {
   calibrationLowBandWeight: 0.6,
   calibrationMidBandWeight: 0.3,
   calibrationHighBandWeight: 0.1,
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // PSYCHOACOUSTIC GATING (NG-HARDEN-04)
+  // Temporal masking and rhythmic rejection for advanced noise filtering
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // TEMPORAL MASKING (Spectral Entropy Stationarity)
+  // Bowel sounds are NON-STATIONARY (spectrum changes rapidly)
+  // Air noise is STATIONARY (spectrum remains constant over time)
+  // If spectral entropy stays constant for > 400ms, signal is masked (VRS weight = 0)
+  temporalMaskingWindowMs: 400,
+  // Maximum variance in spectral entropy allowed for non-stationary signal
+  // Higher variance = more non-stationary = more likely gut sound
+  spectralEntropyVarianceThreshold: 0.05,
+  // Number of consecutive windows needed to confirm stationarity
+  stationarityConsecutiveWindows: 4,
+
+  // RHYTHMIC REJECTION (Autocorrelation)
+  // Fans and AC have rhythmic pulses at precise intervals (60Hz, 500ms, etc.)
+  // Gut sounds are APERIODIC (no regular repetition)
+  // If autocorrelation detects strong periodicity, classify as "Mechanical Noise"
+  autocorrelationWindowSize: 4096,
+  // Minimum autocorrelation peak for periodicity detection (0-1)
+  // High peak = strong periodicity = likely mechanical noise
+  autocorrelationPeriodicityThreshold: 0.6,
+  // Common mechanical noise frequencies to check (Hz)
+  mechanicalNoiseFrequencies: [50, 60, 100, 120], // AC mains frequencies
+  // Common mechanical noise periods to check (ms)
+  mechanicalNoisePeriods: [500, 1000, 2000], // Fan cycles, compressors
+  // Tolerance for period matching (±5%)
+  periodMatchTolerance: 0.05,
+
+  // SPECTRAL ENTROPY
+  // Measures "randomness" of spectrum - high entropy = noise-like
+  // Used for temporal masking: constant entropy over time = stationary noise
+  spectralEntropyWhiteNoiseThreshold: 0.9,
 };
 
 /**
@@ -472,6 +508,364 @@ function computeSpectralContrast(magnitudes: number[]): number {
   const contrast = (peakEnergy - valleyEnergy) / peakEnergy;
 
   return Math.max(0, Math.min(1, contrast));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// PSYCHOACOUSTIC GATING FUNCTIONS (NG-HARDEN-04)
+// Temporal masking and rhythmic rejection for advanced noise filtering
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute Spectral Entropy
+ *
+ * Measures the "randomness" or "flatness" of a spectrum using Shannon entropy.
+ * High entropy (near 1.0) = noise-like (energy spread evenly)
+ * Low entropy (near 0.0) = tonal (energy concentrated in few bins)
+ *
+ * Formula: H = -sum(p * log2(p)) / log2(N)
+ * where p = normalized power in each bin
+ *
+ * @param magnitudes - Magnitude spectrum
+ * @returns Spectral entropy (0-1)
+ */
+function computeSpectralEntropy(magnitudes: number[]): number {
+  if (magnitudes.length < 2) return 0;
+
+  // Convert to power spectrum
+  const power = magnitudes.map((m) => m * m);
+  const totalPower = power.reduce((sum, p) => sum + p, 0);
+
+  if (totalPower === 0) return 0;
+
+  // Normalize to probability distribution
+  const probabilities = power.map((p) => p / totalPower);
+
+  // Compute Shannon entropy: H = -sum(p * log2(p))
+  let entropy = 0;
+  for (const p of probabilities) {
+    if (p > 1e-10) {
+      entropy -= p * Math.log2(p);
+    }
+  }
+
+  // Normalize by max entropy (log2(N)) to get 0-1 range
+  const maxEntropy = Math.log2(magnitudes.length);
+  return maxEntropy > 0 ? entropy / maxEntropy : 0;
+}
+
+/**
+ * Temporal Masking Result
+ */
+interface TemporalMaskingResult {
+  /** Is the signal stationary (constant spectrum over time)? */
+  isStationary: boolean;
+  /** Variance of spectral entropy over the analysis window */
+  entropyVariance: number;
+  /** Number of consecutive windows with similar entropy */
+  consecutiveStationaryWindows: number;
+  /** Should this signal be masked (VRS weight = 0)? */
+  shouldMask: boolean;
+}
+
+/**
+ * Detect stationary (constant) signals using spectral entropy over time
+ *
+ * PSYCHOACOUSTIC PRINCIPLE:
+ * - Bowel sounds are NON-STATIONARY: spectrum changes rapidly
+ * - Air noise is STATIONARY: spectrum remains constant
+ *
+ * If spectral entropy remains constant for > 400ms, the signal is masked.
+ *
+ * @param samples - Time-domain audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns TemporalMaskingResult with stationarity analysis
+ */
+function detectTemporalStationarity(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): TemporalMaskingResult {
+  const windowSamples = Math.floor((CONFIG.temporalMaskingWindowMs / 1000) * sampleRate);
+  const fftSize = CONFIG.fftWindowSize;
+  const hopSize = fftSize / 2;
+
+  // Need at least enough samples for multiple windows
+  const minSamples = fftSize + (CONFIG.stationarityConsecutiveWindows - 1) * hopSize;
+  if (samples.length < minSamples) {
+    return {
+      isStationary: false,
+      entropyVariance: 1.0,
+      consecutiveStationaryWindows: 0,
+      shouldMask: false,
+    };
+  }
+
+  // Compute spectral entropy for each window
+  const entropyValues: number[] = [];
+
+  for (let start = 0; start + fftSize <= samples.length; start += hopSize) {
+    const windowSamples = samples.slice(start, start + fftSize);
+
+    // Apply Hann window
+    const windowed = windowSamples.map(
+      (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)))
+    );
+
+    // Compute FFT and magnitude spectrum
+    const fftResult = computeFFT(windowed);
+    const magnitudes = computeMagnitudeSpectrum(fftResult);
+
+    // Compute spectral entropy
+    const entropy = computeSpectralEntropy(magnitudes);
+    entropyValues.push(entropy);
+  }
+
+  if (entropyValues.length < 2) {
+    return {
+      isStationary: false,
+      entropyVariance: 1.0,
+      consecutiveStationaryWindows: 0,
+      shouldMask: false,
+    };
+  }
+
+  // Compute variance of entropy values
+  const entropyMean = entropyValues.reduce((s, e) => s + e, 0) / entropyValues.length;
+  const entropyVariance =
+    entropyValues.reduce((s, e) => s + (e - entropyMean) ** 2, 0) / entropyValues.length;
+
+  // Count consecutive windows with similar entropy
+  let maxConsecutive = 1;
+  let currentConsecutive = 1;
+
+  for (let i = 1; i < entropyValues.length; i++) {
+    const diff = Math.abs(entropyValues[i] - entropyValues[i - 1]);
+    if (diff < CONFIG.spectralEntropyVarianceThreshold) {
+      currentConsecutive++;
+      maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+    } else {
+      currentConsecutive = 1;
+    }
+  }
+
+  // Determine if signal is stationary
+  const isStationary =
+    entropyVariance < CONFIG.spectralEntropyVarianceThreshold &&
+    maxConsecutive >= CONFIG.stationarityConsecutiveWindows;
+
+  // Also check if entropy is very high (white noise-like)
+  const isHighEntropy = entropyMean > CONFIG.spectralEntropyWhiteNoiseThreshold;
+
+  // Should mask if stationary AND high entropy (constant white noise)
+  const shouldMask = isStationary && isHighEntropy;
+
+  return {
+    isStationary,
+    entropyVariance,
+    consecutiveStationaryWindows: maxConsecutive,
+    shouldMask,
+  };
+}
+
+/**
+ * Rhythmic Rejection Result
+ */
+interface RhythmicRejectionResult {
+  /** Is rhythmic/periodic noise detected? */
+  isRhythmic: boolean;
+  /** Detected period in milliseconds (if rhythmic) */
+  detectedPeriodMs: number | null;
+  /** Peak autocorrelation value */
+  peakAutocorrelation: number;
+  /** Is this mechanical noise (fan, AC)? */
+  isMechanicalNoise: boolean;
+  /** Should this signal be vetoed? */
+  shouldVeto: boolean;
+}
+
+/**
+ * Compute autocorrelation for periodicity detection
+ *
+ * Autocorrelation measures how similar a signal is to a delayed version of itself.
+ * Periodic signals (fans, AC) have high autocorrelation at their period.
+ *
+ * @param samples - Time-domain audio samples
+ * @param maxLag - Maximum lag to compute (in samples)
+ * @returns Autocorrelation values from lag 0 to maxLag
+ */
+function computeAutocorrelation(samples: number[], maxLag: number): number[] {
+  const N = samples.length;
+  const result: number[] = [];
+
+  // Compute mean and energy for normalization
+  const mean = samples.reduce((s, x) => s + x, 0) / N;
+  const centered = samples.map((x) => x - mean);
+  const energy = centered.reduce((s, x) => s + x * x, 0);
+
+  if (energy === 0) {
+    return new Array(maxLag + 1).fill(0);
+  }
+
+  // Compute autocorrelation for each lag
+  for (let lag = 0; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i < N - lag; i++) {
+      sum += centered[i] * centered[i + lag];
+    }
+    // Normalize by energy (so r[0] = 1.0)
+    result.push(sum / energy);
+  }
+
+  return result;
+}
+
+/**
+ * Detect rhythmic/periodic noise using autocorrelation
+ *
+ * PSYCHOACOUSTIC PRINCIPLE:
+ * - Gut sounds are APERIODIC: no regular repetition pattern
+ * - Mechanical noise (fans, AC) is PERIODIC: repeats at precise intervals
+ *
+ * If strong autocorrelation peak is found at known mechanical frequencies,
+ * the signal is classified as "Mechanical Noise" and vetoed.
+ *
+ * @param samples - Time-domain audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns RhythmicRejectionResult with periodicity analysis
+ */
+function detectRhythmicNoise(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): RhythmicRejectionResult {
+  const windowSize = Math.min(CONFIG.autocorrelationWindowSize, samples.length);
+
+  if (windowSize < 1024) {
+    return {
+      isRhythmic: false,
+      detectedPeriodMs: null,
+      peakAutocorrelation: 0,
+      isMechanicalNoise: false,
+      shouldVeto: false,
+    };
+  }
+
+  // Use center portion of samples for analysis
+  const startIdx = Math.floor((samples.length - windowSize) / 2);
+  const windowSamples = samples.slice(startIdx, startIdx + windowSize);
+
+  // Maximum lag to check (up to 2 seconds)
+  const maxLagSamples = Math.floor(2 * sampleRate);
+  const maxLag = Math.min(maxLagSamples, windowSize - 1);
+
+  // Compute autocorrelation
+  const autocorr = computeAutocorrelation(windowSamples, maxLag);
+
+  // Find peaks (excluding lag 0 which is always 1.0)
+  // Start from lag corresponding to ~20ms (avoid very short-term correlations)
+  const minLag = Math.floor(0.02 * sampleRate);
+
+  let peakLag = 0;
+  let peakValue = 0;
+
+  for (let lag = minLag; lag < autocorr.length; lag++) {
+    if (autocorr[lag] > peakValue) {
+      peakValue = autocorr[lag];
+      peakLag = lag;
+    }
+  }
+
+  const detectedPeriodMs = peakLag > 0 ? (peakLag / sampleRate) * 1000 : null;
+
+  // Check if peak matches known mechanical noise frequencies/periods
+  let isMechanicalNoise = false;
+
+  if (peakValue >= CONFIG.autocorrelationPeriodicityThreshold && detectedPeriodMs) {
+    // Check against known mechanical noise frequencies
+    for (const freq of CONFIG.mechanicalNoiseFrequencies) {
+      const expectedPeriodMs = 1000 / freq;
+      const tolerance = expectedPeriodMs * CONFIG.periodMatchTolerance;
+
+      if (Math.abs(detectedPeriodMs - expectedPeriodMs) < tolerance) {
+        isMechanicalNoise = true;
+        break;
+      }
+    }
+
+    // Check against known mechanical noise periods
+    if (!isMechanicalNoise) {
+      for (const periodMs of CONFIG.mechanicalNoisePeriods) {
+        const tolerance = periodMs * CONFIG.periodMatchTolerance;
+
+        if (Math.abs(detectedPeriodMs - periodMs) < tolerance) {
+          isMechanicalNoise = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const isRhythmic = peakValue >= CONFIG.autocorrelationPeriodicityThreshold;
+
+  return {
+    isRhythmic,
+    detectedPeriodMs,
+    peakAutocorrelation: peakValue,
+    isMechanicalNoise,
+    shouldVeto: isMechanicalNoise,
+  };
+}
+
+/**
+ * Combined Psychoacoustic Gating Result (NG-HARDEN-04)
+ */
+export interface PsychoacousticGatingResult {
+  /** Temporal masking analysis */
+  temporalMasking: TemporalMaskingResult;
+  /** Rhythmic rejection analysis */
+  rhythmicRejection: RhythmicRejectionResult;
+  /** Final decision: should this audio be gated (VRS = 0)? */
+  shouldGate: boolean;
+  /** Reason for gating (if gated) */
+  gatingReason: string | null;
+}
+
+/**
+ * Apply psychoacoustic gating to detect and reject non-gut noise
+ *
+ * Combines temporal masking and rhythmic rejection for comprehensive
+ * rejection of air noise, breath, and mechanical noise.
+ *
+ * @param samples - Time-domain audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns PsychoacousticGatingResult with gating decision
+ */
+export function applyPsychoacousticGating(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): PsychoacousticGatingResult {
+  // Apply temporal masking check
+  const temporalMasking = detectTemporalStationarity(samples, sampleRate);
+
+  // Apply rhythmic rejection check
+  const rhythmicRejection = detectRhythmicNoise(samples, sampleRate);
+
+  // Determine final gating decision
+  let shouldGate = false;
+  let gatingReason: string | null = null;
+
+  if (temporalMasking.shouldMask) {
+    shouldGate = true;
+    gatingReason = `Stationary air noise detected (entropy variance: ${temporalMasking.entropyVariance.toFixed(4)}, consecutive windows: ${temporalMasking.consecutiveStationaryWindows})`;
+  } else if (rhythmicRejection.shouldVeto) {
+    shouldGate = true;
+    gatingReason = `Mechanical noise detected (period: ${rhythmicRejection.detectedPeriodMs?.toFixed(1)}ms, autocorr: ${rhythmicRejection.peakAutocorrelation.toFixed(3)})`;
+  }
+
+  return {
+    temporalMasking,
+    rhythmicRejection,
+    shouldGate,
+    gatingReason,
+  };
 }
 
 /**
@@ -1221,6 +1615,23 @@ export function analyzeAudioSamples(
     };
   }
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // PSYCHOACOUSTIC GATING (NG-HARDEN-04)
+  // Temporal masking and rhythmic rejection for advanced noise filtering
+  // ══════════════════════════════════════════════════════════════════════════════
+  const psychoacousticGating = applyPsychoacousticGating(filteredSamples, sampleRate);
+  if (psychoacousticGating.shouldGate) {
+    // Return zero motility - stationary air or mechanical noise detected
+    return {
+      eventsPerMinute: 0,
+      totalActiveSeconds: 0,
+      totalQuietSeconds: Math.round(durationSeconds),
+      motilityIndex: 0,
+      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+      timelineSegments: CONFIG.timelineSegments,
+    };
+  }
+
   // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
   const noSkinContact = detectNoSkinContact(energyValues);
   if (noSkinContact) {
@@ -1391,6 +1802,14 @@ export interface AudioVisualizationData {
     isDominatedByAirNoise: boolean;
     baselineSfm: number;
   };
+  // Psychoacoustic gating summary (NG-HARDEN-04)
+  psychoacousticGating?: {
+    shouldGate: boolean;
+    gatingReason: string | null;
+    isStationary: boolean;
+    isRhythmic: boolean;
+    isMechanicalNoise: boolean;
+  };
 }
 
 /**
@@ -1443,6 +1862,11 @@ export function getVisualizationData(
   const isDominatedByAirNoise = isRecordingDominatedByAirNoise(filteredSamples, sampleRate);
 
   // ══════════════════════════════════════════════════════════════════════════════
+  // PSYCHOACOUSTIC GATING (NG-HARDEN-04)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const psychoacousticGating = applyPsychoacousticGating(filteredSamples, sampleRate);
+
+  // ══════════════════════════════════════════════════════════════════════════════
   // FREQUENCY-WEIGHTED NOISE-FLOOR CALIBRATION (3-second window)
   // ══════════════════════════════════════════════════════════════════════════════
   const noiseFloor = computeNoiseFloor(energyValues, filteredSamples, sampleRate);
@@ -1450,8 +1874,8 @@ export function getVisualizationData(
   // Detect events using calibrated threshold
   let events = detectEvents(energyValues, noiseFloor.eventThreshold);
 
-  // Apply all filters unless recording is air noise dominated
-  if (!isDominatedByAirNoise && !noiseFloor.isAirNoiseBaseline) {
+  // Apply all filters unless recording is air noise dominated or psychoacoustically gated
+  if (!isDominatedByAirNoise && !noiseFloor.isAirNoiseBaseline && !psychoacousticGating.shouldGate) {
     // ══════════════════════════════════════════════════════════════════════════════
     // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
     // ══════════════════════════════════════════════════════════════════════════════
@@ -1467,7 +1891,7 @@ export function getVisualizationData(
       sampleRate
     ));
   } else {
-    // Air noise dominated - no valid events
+    // Air noise dominated or psychoacoustically gated - no valid events
     events = [];
   }
 
@@ -1500,6 +1924,14 @@ export function getVisualizationData(
     spectralAnalysis: {
       isDominatedByAirNoise,
       baselineSfm: noiseFloor.baselineSfm,
+    },
+    // Psychoacoustic gating summary (NG-HARDEN-04)
+    psychoacousticGating: {
+      shouldGate: psychoacousticGating.shouldGate,
+      gatingReason: psychoacousticGating.gatingReason,
+      isStationary: psychoacousticGating.temporalMasking.isStationary,
+      isRhythmic: psychoacousticGating.rhythmicRejection.isRhythmic,
+      isMechanicalNoise: psychoacousticGating.rhythmicRejection.isMechanicalNoise,
     },
   };
 }

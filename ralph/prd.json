@@ -677,6 +677,116 @@
       "priority": 12,
       "passes": true,
       "notes": "NG-HARDEN-03 complete. Implemented full FFT-based spectral analysis with SFM, bowel peak ratio, ZCR, and spectral contrast. Recording-level and event-level white noise detection. Frequency-weighted noise floor calibration. All simulation scenarios pass. TypeScript compiles. Air noise problem permanently solved."
+    },
+    {
+      "id": "NG-HARDEN-04",
+      "name": "State Machine Integrity & Psychoacoustic Gating",
+      "description": "As a clinical user, I need the recording system to prevent double-loop issues and reject stationary air noise and rhythmic mechanical noise, so that the VRS is accurate and the app behaves predictably.",
+      "status": "completed",
+      "features": [
+        "SessionState enum (IDLE, CALIBRATING, READY, RECORDING, COMPLETE)",
+        "Strict state transition guards with validateStateTransition()",
+        "Temporal masking via spectral entropy stationarity check",
+        "Rhythmic rejection via autocorrelation periodicity detection",
+        "Combined psychoacoustic gating pipeline",
+        "Mock signal verification test suite"
+      ],
+      "implementation": {
+        "sessionStateMachine": {
+          "states": ["IDLE", "CALIBRATING", "READY", "RECORDING", "COMPLETE"],
+          "transitions": {
+            "IDLE": ["CALIBRATING"],
+            "CALIBRATING": ["READY", "IDLE"],
+            "READY": ["RECORDING", "IDLE"],
+            "RECORDING": ["COMPLETE", "IDLE"],
+            "COMPLETE": ["IDLE"]
+          },
+          "guardFunction": "if (state !== SessionState.IDLE) return;"
+        },
+        "temporalMasking": {
+          "description": "Detects stationary (constant) signals using spectral entropy over time",
+          "principle": "Bowel sounds are NON-STATIONARY (spectrum changes). Air noise is STATIONARY (constant spectrum).",
+          "algorithm": "Shannon entropy: H = -sum(p * log2(p)) / log2(N)",
+          "thresholds": {
+            "temporalMaskingWindowMs": 400,
+            "spectralEntropyVarianceThreshold": 0.05,
+            "stationarityConsecutiveWindows": 4,
+            "spectralEntropyWhiteNoiseThreshold": 0.9
+          },
+          "decision": "shouldMask = isStationary AND isHighEntropy"
+        },
+        "rhythmicRejection": {
+          "description": "Detects periodic/rhythmic noise using autocorrelation",
+          "principle": "Gut sounds are APERIODIC. Mechanical noise (fans, AC) is PERIODIC.",
+          "algorithm": "r(lag) = sum(x[i] * x[i+lag]) / energy",
+          "knownPatterns": {
+            "frequencies": [50, 60, 100, 120],
+            "periods": [500, 1000, 2000],
+            "tolerance": 0.05
+          },
+          "thresholds": {
+            "autocorrelationWindowSize": 4096,
+            "autocorrelationPeriodicityThreshold": 0.6
+          },
+          "decision": "shouldVeto = isMechanicalNoise"
+        },
+        "combinedGating": {
+          "function": "applyPsychoacousticGating()",
+          "logic": "shouldGate = temporalMasking.shouldMask OR rhythmicRejection.shouldVeto"
+        }
+      },
+      "mockSignalTests": [
+        {
+          "name": "WHITE_NOISE_30S",
+          "description": "30 seconds of constant white noise",
+          "expectedVRS": 0,
+          "result": "PASS"
+        },
+        {
+          "name": "MECHANICAL_NOISE_60HZ",
+          "description": "30 seconds of 60Hz periodic signal",
+          "expectedVRS": 0,
+          "result": "PASS"
+        },
+        {
+          "name": "BREATH_NOISE_30S",
+          "description": "30 seconds with 8 breath events",
+          "expectedVRS": 0,
+          "result": "PASS"
+        },
+        {
+          "name": "GUT_SOUNDS_30S",
+          "description": "30 seconds with 15 gut sound events",
+          "expectedVRS": ">0",
+          "result": "PASS"
+        }
+      ],
+      "definitionOfDone": [
+        "SessionState enum with strict state transitions",
+        "validateStateTransition() guard function",
+        "Temporal masking detects stationary air noise (>400ms constant)",
+        "Rhythmic rejection detects mechanical noise (60Hz, 500ms, etc.)",
+        "Combined psychoacoustic gating integrated into pipeline",
+        "Mock signal test suite created (mockSignal.ts)",
+        "All mock tests pass (white noise → VRS=0)",
+        "TypeScript check passes with zero errors"
+      ],
+      "constraints": [
+        "State machine must prevent double-triggering of calibration",
+        "Temporal masking must not reject short gut sounds",
+        "Rhythmic rejection must not reject irregular gut rhythms",
+        "Patient data isolation must remain intact"
+      ],
+      "acceptanceCriteria": [
+        "startSilenceCheck cannot be triggered twice",
+        "30 seconds of white noise produces VRS = 0.0",
+        "60Hz mechanical noise produces VRS = 0.0",
+        "Valid gut sounds still produce VRS > 0",
+        "TypeScript compiles without errors"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "NG-HARDEN-04 complete. Session state machine with strict guards prevents double-loop issues. Temporal masking (spectral entropy stationarity) detects constant air noise. Rhythmic rejection (autocorrelation) detects mechanical noise. Combined psychoacoustic gating integrated into analysis pipeline. Mock signal verification suite created. All tests pass. TypeScript compiles."
     }
   ]
 }

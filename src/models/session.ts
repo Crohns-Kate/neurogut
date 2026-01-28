@@ -9,6 +9,75 @@
  * IMPORTANT: This app is for self-tracking and coaching only, not medical diagnosis.
  */
 
+// ══════════════════════════════════════════════════════════════════════════════════
+// SESSION STATE MACHINE (NG-HARDEN-04)
+// Strict state transitions to prevent double-loop issues in signal checking
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Session State Machine
+ *
+ * Enforces strict state transitions to prevent race conditions and double-triggering:
+ *
+ * State Flow:
+ *   IDLE → CALIBRATING → READY → RECORDING → COMPLETE
+ *          ↓ (fail)
+ *       IDLE
+ *
+ * Rules:
+ * - CALIBRATING can only be entered from IDLE
+ * - READY can only be entered from CALIBRATING (on success)
+ * - RECORDING can only be entered from READY
+ * - COMPLETE can only be entered from RECORDING
+ * - Any error returns to IDLE
+ */
+export enum SessionState {
+  /** Initial state - no session active, ready to start */
+  IDLE = "IDLE",
+  /** Performing signal/silence calibration check */
+  CALIBRATING = "CALIBRATING",
+  /** Calibration passed, ready to record */
+  READY = "READY",
+  /** Actively recording gut sounds */
+  RECORDING = "RECORDING",
+  /** Recording finished, processing/saving */
+  COMPLETE = "COMPLETE",
+}
+
+/**
+ * Valid state transitions for the session state machine
+ */
+export const VALID_STATE_TRANSITIONS: Record<SessionState, SessionState[]> = {
+  [SessionState.IDLE]: [SessionState.CALIBRATING],
+  [SessionState.CALIBRATING]: [SessionState.READY, SessionState.IDLE], // Success or fail
+  [SessionState.READY]: [SessionState.RECORDING, SessionState.IDLE], // Start or cancel
+  [SessionState.RECORDING]: [SessionState.COMPLETE, SessionState.IDLE], // Finish or cancel
+  [SessionState.COMPLETE]: [SessionState.IDLE], // Reset
+};
+
+/**
+ * Check if a state transition is valid
+ */
+export function isValidStateTransition(
+  currentState: SessionState,
+  nextState: SessionState
+): boolean {
+  return VALID_STATE_TRANSITIONS[currentState].includes(nextState);
+}
+
+/**
+ * Session state machine guard - returns error message if transition is invalid
+ */
+export function validateStateTransition(
+  currentState: SessionState,
+  nextState: SessionState
+): string | null {
+  if (isValidStateTransition(currentState, nextState)) {
+    return null; // Valid transition
+  }
+  return `Invalid state transition: ${currentState} → ${nextState}. Valid transitions from ${currentState}: ${VALID_STATE_TRANSITIONS[currentState].join(", ")}`;
+}
+
 // Recording protocol types with their durations
 export type RecordingProtocolType = "quick_check" | "post_meal" | "mind_body";
 
