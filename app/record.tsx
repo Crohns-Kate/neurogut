@@ -1132,6 +1132,12 @@ export default function GutSoundRecordingScreen() {
   };
 
   const startRecording = async () => {
+    // Ralph Loop: Calibration gate - prevent premature recording
+    if (!sessionContext.calibrationCompleted && !step3Completed) {
+      Alert.alert("Calibration Required", "Please complete the silence check before recording.");
+      return;
+    }
+
     try {
       if (permissionStatus !== "granted") {
         const ok = await requestPermission();
@@ -1372,9 +1378,11 @@ export default function GutSoundRecordingScreen() {
   const handlePrimerComplete = () => {
     setShowVagalPrimer(false);
     sessionContext.completePrimer();
+    sessionContext.completeCalibration(); // Ralph Loop: Primer counts as calibration
+    setSignalPassed(true);               // Ralph Loop: Fix button visibility
+    setStep3Completed(true);
     sessionContext.setPhase("recording");
     // Skip signal check after primer - go directly to recording
-    setStep3Completed(true);
     startRecording();
   };
 
@@ -1490,6 +1498,7 @@ export default function GutSoundRecordingScreen() {
           // Always pass in development mode
           setSignalPassed(true);
           setStep3Completed(true);
+          sessionContext.completeCalibration(); // Ralph Loop: Set calibration gate
         }
       }, 500); // Update every 500ms for 5 seconds
     } catch (error) {
@@ -1659,6 +1668,7 @@ export default function GutSoundRecordingScreen() {
               onStartSignalCheck={handleStartSignalCheck}
               onRetrySignalCheck={handleRetrySignalCheck}
               onClose={() => setShowPlacementGuide(false)}
+              isCalibrated={sessionContext.calibrationCompleted}
             />
             {(hummingDetected || (ambientNoiseLevel !== null && ambientNoiseLevel >= 0.05)) && (
               <View style={styles.noiseWarningContainer}>

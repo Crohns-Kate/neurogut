@@ -45,8 +45,9 @@ export const ACOUSTIC_ISOLATION_CONFIG = {
   // 5-second pre-recording baseline to measure environmental noise
   // ────────────────────────────────────────────────────────────────────────────────
 
-  /** Duration in seconds for ANF calibration (silent baseline measurement) */
-  anfCalibrationDurationSeconds: 5,
+  /** Duration in seconds for ANF calibration (silent baseline measurement)
+   *  Extended from 5s to 10s for clinical-grade precision */
+  anfCalibrationDurationSeconds: 10,
 
   /** Multiplier above ANF mean for adaptive event threshold
    *  Events must exceed: anfMean + (anfThresholdMultiplier * anfStdDev) */
@@ -147,6 +148,27 @@ export const ACOUSTIC_ISOLATION_CONFIG = {
   /** Smoothing factor for real-time SNR updates (0-1)
    *  Higher = more smoothing, slower response */
   snrSmoothingFactor: 0.3,
+
+  // ────────────────────────────────────────────────────────────────────────────────
+  // ACOUSTIC FINGERPRINTING (Ralph Loop)
+  // Accept short peristaltic bursts, reject constant environmental noise
+  // ────────────────────────────────────────────────────────────────────────────────
+
+  /** Minimum burst duration for valid gut sound (ms)
+   *  Peristaltic clicks and short gurgles can be as brief as 10ms */
+  burstMinDurationMs: 10,
+
+  /** Maximum burst duration for valid gut sound (ms)
+   *  Gut bursts rarely exceed 1.5 seconds */
+  burstMaxDurationMs: 1500,
+
+  /** Duration above which constant noise is rejected (ms)
+   *  Environmental noise (AC, fans, traffic) persists >2 seconds */
+  constantNoiseRejectMs: 2000,
+
+  /** Maximum RMS variance for constant noise detection (0-1)
+   *  Low variance = stationary/constant noise */
+  stationarityVarianceThreshold: 0.05,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════════
@@ -155,6 +177,9 @@ export const ACOUSTIC_ISOLATION_CONFIG = {
 
 /**
  * Result of Ambient Noise Floor calibration
+ *
+ * Extended for clinical-grade precision with mel noise profile,
+ * frequency histogram baseline, and temporal variability metrics.
  */
 export interface ANFCalibrationResult {
   /** Mean RMS energy during calibration period */
@@ -173,6 +198,31 @@ export interface ANFCalibrationResult {
   calibrationWindows: number;
   /** Timestamp of calibration */
   calibratedAt: string;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // EXTENDED CALIBRATION DATA (Clinical-Grade Precision)
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  /** Average mel energy per bin during calibration (64 bins, 100-450 Hz range)
+   *  Used for mel-domain noise subtraction during event detection */
+  melNoiseProfile?: number[];
+
+  /** Frequency histogram baseline: distribution of peak frequencies during calibration
+   *  8 bins spanning 100-450 Hz, normalized. Used for PFHS comparison. */
+  frequencyHistogram?: number[];
+
+  /** Temporal Variability Index: Coefficient of Variation (CV) of RMS energy over time
+   *  Low CV (<0.1) = stationary noise; High CV (>0.3) = non-stationary signal
+   *  Used for stationarity detection (constant noise rejection) */
+  temporalVariabilityIndex?: number;
+
+  /** Baseline Spectral Entropy: Shannon entropy of power spectrum during calibration
+   *  High entropy (~1.0) = white noise; Low entropy (~0.5) = tonal/peaked
+   *  Used for air noise vs. gut sound discrimination */
+  baselineSpectralEntropy?: number;
+
+  /** Noise floor in dB (20 * log10(anfMean / referenceLevel)) */
+  noiseFloorDb?: number;
 }
 
 /**
@@ -208,11 +258,15 @@ export function computeRMS(samples: number[]): number {
 /**
  * Perform Ambient Noise Floor calibration on a buffer of audio samples
  *
- * This function analyzes the first N seconds of audio to establish:
+ * Extended for clinical-grade precision (10-second calibration):
  * - Baseline noise level (ANF)
  * - Adaptive detection threshold
  * - Detected constant hum frequencies
  * - Signal Quality metric (SNR)
+ * - Mel noise profile for spectral subtraction
+ * - Frequency histogram baseline for PFHS
+ * - Temporal variability index for stationarity detection
+ * - Baseline spectral entropy for noise discrimination
  *
  * @param samples - Raw audio samples for calibration
  * @param sampleRate - Sample rate in Hz
@@ -226,7 +280,7 @@ export function calibrateAmbientNoiseFloor(
   const windowSizeSamples = Math.floor((config.anfWindowMs / 1000) * sampleRate);
   const calibrationSamples = Math.floor(config.anfCalibrationDurationSeconds * sampleRate);
 
-  // Use only calibration period
+  // Use only calibration period (10 seconds for clinical-grade precision)
   const calibrationData = samples.slice(0, Math.min(calibrationSamples, samples.length));
 
   if (calibrationData.length < windowSizeSamples) {
@@ -240,6 +294,11 @@ export function calibrateAmbientNoiseFloor(
       signalQuality: "poor",
       calibrationWindows: 0,
       calibratedAt: new Date().toISOString(),
+      melNoiseProfile: [],
+      frequencyHistogram: new Array(8).fill(0),
+      temporalVariabilityIndex: 0,
+      baselineSpectralEntropy: 0,
+      noiseFloorDb: -60,
     };
   }
 
@@ -261,28 +320,46 @@ export function calibrateAmbientNoiseFloor(
   const adaptiveThreshold = anfMean + config.anfThresholdMultiplier * anfStdDev;
 
   // ══════════════════════════════════════════════════════════════════════════════
+  // TEMPORAL VARIABILITY INDEX (Coefficient of Variation)
+  // CV = stdDev / mean - measures stationarity of the noise
+  // Low CV (<0.1) = stationary noise (AC hum, fan)
+  // High CV (>0.3) = non-stationary signal (speech, movement)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const temporalVariabilityIndex = anfMean > 0 ? anfStdDev / anfMean : 0;
+
+  // ══════════════════════════════════════════════════════════════════════════════
   // REFERENCE-BASED SNR ESTIMATION
   // During calibration we measure NOISE, not signal. Low noise = GOOD.
   // SNR estimates potential for detecting gut sounds against the noise floor.
   // ══════════════════════════════════════════════════════════════════════════════
-  
+
   // Reference gut signal level based on clinical data (typical borborygmi RMS)
   // Normalized audio: gut sounds typically measure 0.01-0.05 RMS (-40 to -26 dB)
   const REFERENCE_GUT_SIGNAL_RMS = 0.02; // -34 dB, conservative estimate
-  
+
   // SNR = 20 * log10(expectedSignal / noiseFloor)
   // - Quiet room (anfMean=0.001): SNR = 26 dB (excellent)
-  // - Normal room (anfMean=0.005): SNR = 12 dB (good)  
+  // - Normal room (anfMean=0.005): SNR = 12 dB (good)
   // - Noisy room (anfMean=0.02): SNR = 0 dB (poor)
-  const estimatedSNR = anfMean > 0 
+  const estimatedSNR = anfMean > 0
     ? 20 * Math.log10(REFERENCE_GUT_SIGNAL_RMS / anfMean)
     : 30; // Silent input defaults to excellent
+
+  // Noise floor in dB (relative to full scale)
+  const noiseFloorDb = anfMean > 0 ? 20 * Math.log10(anfMean) : -60;
 
   // Detect constant hum frequencies via simple spectral analysis
   const detectedHumFrequencies = detectConstantHums(calibrationData, sampleRate);
 
   // Classify signal quality
   const signalQuality = getSignalQuality(estimatedSNR);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // MEL NOISE PROFILE & SPECTRAL ENTROPY (Extended Calibration)
+  // Compute mel-domain noise profile for spectral subtraction during detection
+  // ══════════════════════════════════════════════════════════════════════════════
+  const { melNoiseProfile, frequencyHistogram, baselineSpectralEntropy } =
+    computeExtendedCalibrationMetrics(calibrationData, sampleRate);
 
   return {
     anfMean,
@@ -293,6 +370,183 @@ export function calibrateAmbientNoiseFloor(
     signalQuality,
     calibrationWindows: rmsValues.length,
     calibratedAt: new Date().toISOString(),
+    // Extended calibration data
+    melNoiseProfile,
+    frequencyHistogram,
+    temporalVariabilityIndex,
+    baselineSpectralEntropy,
+    noiseFloorDb,
+  };
+}
+
+/**
+ * Compute extended calibration metrics for clinical-grade precision
+ *
+ * @param samples - Calibration audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns Extended metrics: mel noise profile, frequency histogram, spectral entropy
+ */
+function computeExtendedCalibrationMetrics(
+  samples: number[],
+  sampleRate: number
+): {
+  melNoiseProfile: number[];
+  frequencyHistogram: number[];
+  baselineSpectralEntropy: number;
+} {
+  const FFT_SIZE = 2048;
+  const HOP_SIZE = 512;
+  const NUM_MEL_BINS = 64;
+  const F_MIN = 100;
+  const F_MAX = 450;
+
+  // Default values if insufficient data
+  if (samples.length < FFT_SIZE) {
+    return {
+      melNoiseProfile: new Array(NUM_MEL_BINS).fill(-10),
+      frequencyHistogram: new Array(8).fill(0.125),
+      baselineSpectralEntropy: 0.5,
+    };
+  }
+
+  // Helper: Hz to Mel conversion
+  const hzToMel = (hz: number) => 2595 * Math.log10(1 + hz / 700);
+  const melToHz = (mel: number) => 700 * (Math.pow(10, mel / 2595) - 1);
+
+  // Create mel filterbank (simplified inline version)
+  const melMin = hzToMel(F_MIN);
+  const melMax = hzToMel(F_MAX);
+  const melPoints: number[] = [];
+  for (let i = 0; i < NUM_MEL_BINS + 2; i++) {
+    melPoints.push(melMin + (i * (melMax - melMin)) / (NUM_MEL_BINS + 1));
+  }
+  const hzPoints = melPoints.map(melToHz);
+  const numFftBins = FFT_SIZE / 2;
+  const binPoints = hzPoints.map((hz) =>
+    Math.floor((hz * numFftBins * 2) / sampleRate)
+  );
+
+  // Create triangular filters
+  const melFilters: number[][] = [];
+  for (let m = 0; m < NUM_MEL_BINS; m++) {
+    const filter: number[] = new Array(numFftBins).fill(0);
+    const leftBin = binPoints[m];
+    const centerBin = binPoints[m + 1];
+    const rightBin = binPoints[m + 2];
+
+    for (let k = leftBin; k < centerBin; k++) {
+      if (k >= 0 && k < numFftBins) {
+        filter[k] = (k - leftBin) / (centerBin - leftBin + 1e-10);
+      }
+    }
+    for (let k = centerBin; k <= rightBin; k++) {
+      if (k >= 0 && k < numFftBins) {
+        filter[k] = (rightBin - k) / (rightBin - centerBin + 1e-10);
+      }
+    }
+    melFilters.push(filter);
+  }
+
+  // Process frames and accumulate mel energies
+  const numFrames = Math.max(1, Math.floor((samples.length - FFT_SIZE) / HOP_SIZE) + 1);
+  const melEnergySum: number[] = new Array(NUM_MEL_BINS).fill(0);
+  const peakBins: number[] = [];
+  const entropyValues: number[] = [];
+
+  for (let frame = 0; frame < numFrames; frame++) {
+    const startSample = frame * HOP_SIZE;
+    let frameSamples = samples.slice(startSample, startSample + FFT_SIZE);
+    if (frameSamples.length < FFT_SIZE) {
+      frameSamples = [...frameSamples, ...new Array(FFT_SIZE - frameSamples.length).fill(0)];
+    }
+
+    // Apply Hann window
+    const windowed = frameSamples.map(
+      (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FFT_SIZE - 1)))
+    );
+
+    // Compute magnitude spectrum (simplified DFT for key bins)
+    const magnitudes: number[] = [];
+    let maxMag = 0;
+    let peakBin = 0;
+
+    for (let k = 0; k < numFftBins; k++) {
+      let real = 0, imag = 0;
+      for (let n = 0; n < FFT_SIZE; n++) {
+        const angle = (-2 * Math.PI * k * n) / FFT_SIZE;
+        real += windowed[n] * Math.cos(angle);
+        imag += windowed[n] * Math.sin(angle);
+      }
+      const mag = Math.sqrt(real * real + imag * imag);
+      magnitudes.push(mag);
+      if (mag > maxMag) {
+        maxMag = mag;
+        peakBin = k;
+      }
+    }
+
+    peakBins.push(peakBin);
+
+    // Apply mel filterbank
+    for (let m = 0; m < NUM_MEL_BINS; m++) {
+      let energy = 0;
+      for (let k = 0; k < numFftBins; k++) {
+        energy += magnitudes[k] * magnitudes[k] * melFilters[m][k];
+      }
+      melEnergySum[m] += Math.log(Math.max(energy, 1e-10));
+    }
+
+    // Compute spectral entropy for this frame
+    const totalEnergy = magnitudes.reduce((sum, m) => sum + m * m, 0);
+    if (totalEnergy > 0) {
+      let entropy = 0;
+      for (const m of magnitudes) {
+        const p = (m * m) / totalEnergy;
+        if (p > 1e-10) {
+          entropy -= p * Math.log2(p);
+        }
+      }
+      const maxEntropy = Math.log2(magnitudes.length);
+      entropyValues.push(maxEntropy > 0 ? entropy / maxEntropy : 0);
+    }
+  }
+
+  // Average mel noise profile
+  const melNoiseProfile = melEnergySum.map((sum) => sum / numFrames);
+
+  // Build frequency histogram (8 bins: 100-450 Hz)
+  const binEdges = [100, 144, 188, 231, 275, 319, 363, 406, 450];
+  const frequencyHistogram = new Array(8).fill(0);
+  const freqPerBin = sampleRate / FFT_SIZE;
+
+  for (const bin of peakBins) {
+    const freq = bin * freqPerBin;
+    for (let i = 0; i < 8; i++) {
+      if (freq >= binEdges[i] && freq < binEdges[i + 1]) {
+        frequencyHistogram[i]++;
+        break;
+      }
+    }
+  }
+
+  // Normalize histogram
+  const histTotal = frequencyHistogram.reduce((sum, h) => sum + h, 0);
+  if (histTotal > 0) {
+    for (let i = 0; i < 8; i++) {
+      frequencyHistogram[i] /= histTotal;
+    }
+  }
+
+  // Average spectral entropy
+  const baselineSpectralEntropy =
+    entropyValues.length > 0
+      ? entropyValues.reduce((sum, e) => sum + e, 0) / entropyValues.length
+      : 0.5;
+
+  return {
+    melNoiseProfile,
+    frequencyHistogram,
+    baselineSpectralEntropy,
   };
 }
 
@@ -636,5 +890,187 @@ export function runAcousticIsolation(
     calibration,
     environmentSuitable,
     recommendation,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ACOUSTIC FINGERPRINTING (Ralph Loop)
+// Burst validation and constant noise detection for improved event filtering
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Constant Noise Detection Result
+ */
+export interface ConstantNoiseResult {
+  /** Is this signal constant/stationary noise? */
+  isConstantNoise: boolean;
+  /** Normalized RMS variance (0-1) */
+  rmsVariance: number;
+  /** Duration of the analyzed segment (ms) */
+  durationMs: number;
+  /** Detection reason */
+  reason: string;
+}
+
+/**
+ * Detect constant/stationary noise by measuring RMS variance over time
+ *
+ * Constant noise (AC hum, fans, traffic) has low RMS variance - the
+ * amplitude stays nearly the same throughout. Gut sounds have high
+ * variance due to their transient, bursting nature.
+ *
+ * @param samples - Audio samples for the event
+ * @param sampleRate - Sample rate in Hz
+ * @returns ConstantNoiseResult with detection data
+ */
+export function detectConstantNoise(
+  samples: number[],
+  sampleRate: number = 44100
+): ConstantNoiseResult {
+  const config = ACOUSTIC_ISOLATION_CONFIG;
+  const windowSizeSamples = Math.floor((config.anfWindowMs / 1000) * sampleRate);
+  const durationMs = (samples.length / sampleRate) * 1000;
+
+  if (samples.length < windowSizeSamples * 2) {
+    return {
+      isConstantNoise: false,
+      rmsVariance: 1.0,
+      durationMs,
+      reason: "Too short for variance analysis",
+    };
+  }
+
+  // Compute windowed RMS values
+  const rmsValues: number[] = [];
+  for (let i = 0; i + windowSizeSamples <= samples.length; i += windowSizeSamples) {
+    const window = samples.slice(i, i + windowSizeSamples);
+    const rms = computeRMS(window);
+    rmsValues.push(rms);
+  }
+
+  if (rmsValues.length < 2) {
+    return {
+      isConstantNoise: false,
+      rmsVariance: 1.0,
+      durationMs,
+      reason: "Insufficient windows for variance",
+    };
+  }
+
+  // Calculate mean and variance of RMS values
+  const mean = rmsValues.reduce((sum, r) => sum + r, 0) / rmsValues.length;
+  if (mean === 0) {
+    return {
+      isConstantNoise: false,
+      rmsVariance: 0,
+      durationMs,
+      reason: "Silent signal",
+    };
+  }
+
+  const variance = rmsValues.reduce((sum, r) => sum + (r - mean) ** 2, 0) / rmsValues.length;
+  // Normalize variance by mean squared (coefficient of variation squared)
+  const normalizedVariance = variance / (mean * mean);
+
+  // Constant noise: low variance AND duration > threshold
+  const isConstantNoise =
+    normalizedVariance < config.stationarityVarianceThreshold &&
+    durationMs > config.constantNoiseRejectMs;
+
+  return {
+    isConstantNoise,
+    rmsVariance: normalizedVariance,
+    durationMs,
+    reason: isConstantNoise
+      ? `Stationary noise: variance=${normalizedVariance.toFixed(4)}, duration=${durationMs.toFixed(0)}ms`
+      : `Dynamic signal: variance=${normalizedVariance.toFixed(4)}`,
+  };
+}
+
+/**
+ * Burst Event Validation Result
+ */
+export interface BurstValidationResult {
+  /** Is this a valid burst (gut sound candidate)? */
+  isValidBurst: boolean;
+  /** Event duration in milliseconds */
+  durationMs: number;
+  /** Is this constant/environmental noise? */
+  isConstantNoise: boolean;
+  /** Validation reason for debugging */
+  reason: string;
+}
+
+/**
+ * Validate an event against the acoustic fingerprint of gut sounds
+ *
+ * Gut sounds (borborygmi, peristalsis, gurgles) are characterized by:
+ * - Short duration bursts (10ms - 1500ms)
+ * - High amplitude variance (dynamic, not constant)
+ *
+ * Environmental noise is characterized by:
+ * - Long duration (>2000ms for constant sources)
+ * - Low amplitude variance (stationary)
+ *
+ * @param samples - Audio samples for the event
+ * @param sampleRate - Sample rate in Hz
+ * @returns BurstValidationResult with validation data
+ */
+export function validateBurstEvent(
+  samples: number[],
+  sampleRate: number = 44100
+): BurstValidationResult {
+  const config = ACOUSTIC_ISOLATION_CONFIG;
+  const durationMs = (samples.length / sampleRate) * 1000;
+
+  // Check duration bounds
+  if (durationMs < config.burstMinDurationMs) {
+    return {
+      isValidBurst: false,
+      durationMs,
+      isConstantNoise: false,
+      reason: `Too short: ${durationMs.toFixed(0)}ms < ${config.burstMinDurationMs}ms`,
+    };
+  }
+
+  // Short bursts within valid range are immediately accepted
+  if (durationMs <= config.burstMaxDurationMs) {
+    return {
+      isValidBurst: true,
+      durationMs,
+      isConstantNoise: false,
+      reason: `Valid burst: ${durationMs.toFixed(0)}ms in range [${config.burstMinDurationMs}-${config.burstMaxDurationMs}]ms`,
+    };
+  }
+
+  // For longer events, check for constant noise characteristics
+  const noiseResult = detectConstantNoise(samples, sampleRate);
+
+  if (noiseResult.isConstantNoise) {
+    return {
+      isValidBurst: false,
+      durationMs,
+      isConstantNoise: true,
+      reason: `Constant noise rejected: ${noiseResult.reason}`,
+    };
+  }
+
+  // Long but dynamic events (rare gut sounds or compound events)
+  // Accept if variance is high enough (not stationary)
+  if (durationMs <= config.constantNoiseRejectMs) {
+    return {
+      isValidBurst: true,
+      durationMs,
+      isConstantNoise: false,
+      reason: `Extended dynamic event: ${durationMs.toFixed(0)}ms with variance=${noiseResult.rmsVariance.toFixed(4)}`,
+    };
+  }
+
+  // Very long events with moderate variance - reject as potential noise
+  return {
+    isValidBurst: false,
+    durationMs,
+    isConstantNoise: false,
+    reason: `Too long: ${durationMs.toFixed(0)}ms > ${config.constantNoiseRejectMs}ms`,
   };
 }

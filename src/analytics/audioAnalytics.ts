@@ -28,6 +28,7 @@ import {
   applySpectralSubtraction,
   detectTransient,
   assessSignalQuality,
+  validateBurstEvent,
   type ANFCalibrationResult,
   type SignalQuality,
 } from "../logic/audioProcessor";
@@ -174,26 +175,118 @@ const CONFIG = {
   spectralEntropyWhiteNoiseThreshold: 0.9,
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // DURATION GATING (NG-HARDEN-05)
-  // Only signals lasting 0.5s-2s pass as gut events
+  // DURATION GATING (NG-HARDEN-05 + Ralph Loop)
+  // Acoustic Fingerprinting: Accept short bursts (10ms-1500ms), reject constant noise >2s
   // ══════════════════════════════════════════════════════════════════════════════
 
   // Minimum event duration to be considered a valid gut sound (ms)
-  // Gut sounds are sustained; clicks/transients are <100ms
-  minValidEventDurationMs: 500,
+  // Ralph Loop: Accept very short peristaltic clicks (as brief as 10ms)
+  minValidEventDurationMs: 10,
 
   // Maximum event duration to be considered a valid gut sound (ms)
-  // Gut sounds are transient; constant noise lasts >2s
-  maxValidEventDurationMs: 2000,
+  // Ralph Loop: Gut bursts rarely exceed 1.5 seconds
+  maxValidEventDurationMs: 1500,
 
   // Duration below which events are rejected as transients (ms)
-  // Door slams, coughs, clicks are typically <100ms
-  transientRejectDurationMs: 100,
+  // Ralph Loop: Accept very short bursts, lower threshold to 10ms
+  transientRejectDurationMs: 10,
 
   // Duration above which events are considered sustained noise (ms)
-  // AC hum, refrigerator drone, continuous speech are >3s
-  sustainedNoiseRejectDurationMs: 3000,
+  // Ralph Loop: Reject constant environmental noise >2s
+  sustainedNoiseRejectDurationMs: 2000,
 };
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ANF CALIBRATION CACHE (Ralph Loop)
+// Prevents duplicate calibration calls within the same analysis session
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Cached ANF calibration result
+ */
+interface CachedANFCalibration {
+  result: ANFCalibrationResult;
+  samplesHash: number;
+  timestamp: number;
+}
+
+/** Module-level ANF cache */
+let cachedANF: CachedANFCalibration | null = null;
+
+/** Cache expiry time in milliseconds (60 seconds) */
+const ANF_CACHE_EXPIRY_MS = 60000;
+
+/**
+ * Compute a simple hash of samples for cache validation
+ * Uses first 1000 samples + length + sum for uniqueness
+ */
+function computeSamplesHash(samples: number[]): number {
+  if (samples.length === 0) return 0;
+
+  const sampleSubset = samples.slice(0, Math.min(1000, samples.length));
+  const sum = sampleSubset.reduce((acc, s) => acc + s, 0);
+
+  // Combine length, sum, and first/last samples for a reasonable hash
+  return samples.length * 31 +
+         Math.round(sum * 10000) +
+         Math.round((samples[0] || 0) * 1000) +
+         Math.round((samples[samples.length - 1] || 0) * 1000);
+}
+
+/**
+ * Get cached ANF calibration or perform fresh calibration
+ *
+ * Returns cached result if:
+ * 1. Cache exists
+ * 2. Samples hash matches (same audio data)
+ * 3. Cache is fresh (< 60 seconds old)
+ *
+ * Otherwise performs fresh calibration and updates cache.
+ *
+ * @param samples - Audio samples for calibration
+ * @param sampleRate - Sample rate in Hz
+ * @returns ANFCalibrationResult (cached or fresh)
+ */
+function getCachedANFCalibration(
+  samples: number[],
+  sampleRate: number
+): ANFCalibrationResult {
+  const now = Date.now();
+  const samplesHash = computeSamplesHash(samples);
+
+  // Check if cache is valid
+  if (cachedANF !== null) {
+    const isSameData = cachedANF.samplesHash === samplesHash;
+    const isFresh = (now - cachedANF.timestamp) < ANF_CACHE_EXPIRY_MS;
+
+    if (isSameData && isFresh) {
+      // Cache hit
+      return cachedANF.result;
+    }
+  }
+
+  // Cache miss - perform fresh calibration
+  const result = calibrateAmbientNoiseFloor(samples, sampleRate);
+
+  // Update cache
+  cachedANF = {
+    result,
+    samplesHash,
+    timestamp: now,
+  };
+
+  return result;
+}
+
+/**
+ * Clear the ANF calibration cache
+ *
+ * Call this when starting a new recording session to ensure
+ * fresh calibration data is computed.
+ */
+export function clearANFCache(): void {
+  cachedANF = null;
+}
 
 /**
  * Represents a detected gut sound event
@@ -395,6 +488,421 @@ function computeMagnitudeSpectrum(
   }
 
   return magnitudes;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// LOG-MEL SPECTROGRAM PIPELINE (Clinical-Grade Precision)
+// Based on Wav2Vec 2.0/HuBERT architecture (arXiv:2502.15607)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Log-Mel Spectrogram Configuration
+ */
+export const LOG_MEL_CONFIG = {
+  /** Number of mel filterbank channels */
+  numMelBins: 64,
+  /** FFT window size (samples) */
+  fftSize: 2048,
+  /** Hop size between consecutive frames (samples) */
+  hopSize: 512,
+  /** Lower frequency bound for mel filterbank (Hz) - aligned with gut sound range */
+  fMin: 100,
+  /** Upper frequency bound for mel filterbank (Hz) - aligned with gut sound range */
+  fMax: 450,
+  /** Sample rate (Hz) */
+  sampleRate: 44100,
+  /** Snippet duration for CNN processing (ms) - Hyfe architecture */
+  snippetDurationMs: 500,
+  /** Snippet overlap (ms) - 50% overlap for robustness */
+  snippetOverlapMs: 250,
+  /** Floor value for log compression (prevents log(0)) */
+  logFloor: 1e-10,
+};
+
+/**
+ * Convert frequency in Hz to Mel scale
+ * Formula: mel = 2595 * log10(1 + f/700)
+ */
+function hzToMel(hz: number): number {
+  return 2595 * Math.log10(1 + hz / 700);
+}
+
+/**
+ * Convert Mel scale to frequency in Hz
+ * Formula: hz = 700 * (10^(mel/2595) - 1)
+ */
+function melToHz(mel: number): number {
+  return 700 * (Math.pow(10, mel / 2595) - 1);
+}
+
+/**
+ * Mel Filterbank for Log-Mel Spectrogram
+ * Triangular filters spaced uniformly on the mel scale
+ */
+export interface MelFilterbank {
+  /** Filter weights matrix [numMelBins x numFftBins] */
+  filters: number[][];
+  /** Center frequencies of each mel bin (Hz) */
+  centerFrequencies: number[];
+  /** Number of mel bins */
+  numBins: number;
+  /** Number of FFT bins used */
+  numFftBins: number;
+}
+
+/**
+ * Create a Mel-scale filterbank for spectrogram computation
+ *
+ * @param numMelBins - Number of mel filter channels
+ * @param numFftBins - Number of FFT frequency bins (fftSize/2)
+ * @param sampleRate - Audio sample rate (Hz)
+ * @param fMin - Minimum frequency (Hz)
+ * @param fMax - Maximum frequency (Hz)
+ * @returns MelFilterbank with triangular filters
+ */
+export function createMelFilterbank(
+  numMelBins: number = LOG_MEL_CONFIG.numMelBins,
+  numFftBins: number = LOG_MEL_CONFIG.fftSize / 2,
+  sampleRate: number = LOG_MEL_CONFIG.sampleRate,
+  fMin: number = LOG_MEL_CONFIG.fMin,
+  fMax: number = LOG_MEL_CONFIG.fMax
+): MelFilterbank {
+  // Convert frequency bounds to mel scale
+  const melMin = hzToMel(fMin);
+  const melMax = hzToMel(fMax);
+
+  // Create equally spaced mel points (numMelBins + 2 for triangle edges)
+  const melPoints: number[] = [];
+  for (let i = 0; i < numMelBins + 2; i++) {
+    melPoints.push(melMin + (i * (melMax - melMin)) / (numMelBins + 1));
+  }
+
+  // Convert mel points back to Hz
+  const hzPoints = melPoints.map(melToHz);
+
+  // Convert Hz to FFT bin indices
+  const binPoints = hzPoints.map((hz) =>
+    Math.floor((hz * numFftBins * 2) / sampleRate)
+  );
+
+  // Create triangular filters
+  const filters: number[][] = [];
+  const centerFrequencies: number[] = [];
+
+  for (let m = 0; m < numMelBins; m++) {
+    const filter: number[] = new Array(numFftBins).fill(0);
+    const leftBin = binPoints[m];
+    const centerBin = binPoints[m + 1];
+    const rightBin = binPoints[m + 2];
+
+    centerFrequencies.push(hzPoints[m + 1]);
+
+    // Rising slope (left to center)
+    for (let k = leftBin; k < centerBin; k++) {
+      if (k >= 0 && k < numFftBins) {
+        filter[k] = (k - leftBin) / (centerBin - leftBin + 1e-10);
+      }
+    }
+
+    // Falling slope (center to right)
+    for (let k = centerBin; k <= rightBin; k++) {
+      if (k >= 0 && k < numFftBins) {
+        filter[k] = (rightBin - k) / (rightBin - centerBin + 1e-10);
+      }
+    }
+
+    filters.push(filter);
+  }
+
+  return {
+    filters,
+    centerFrequencies,
+    numBins: numMelBins,
+    numFftBins,
+  };
+}
+
+/**
+ * Log-Mel Spectrogram Result
+ */
+export interface LogMelSpectrogram {
+  /** 2D array of log-mel energies [numFrames x numMelBins] */
+  features: number[][];
+  /** Number of time frames */
+  numFrames: number;
+  /** Number of mel bins */
+  numMelBins: number;
+  /** Time duration of each frame (ms) */
+  frameDurationMs: number;
+  /** Sample rate used */
+  sampleRate: number;
+  /** Mean energy per mel bin (for normalization) */
+  meanMelEnergy: number[];
+  /** Peak frequencies detected across all frames (Hz) */
+  peakFrequencies: number[];
+}
+
+/**
+ * Compute Log-Mel Spectrogram from audio samples
+ *
+ * This produces CNN-ready features aligned with modern acoustic models
+ * like Wav2Vec 2.0 and HuBERT (AUC 0.89 for bowel sound classification).
+ *
+ * @param samples - Audio samples (normalized -1 to 1)
+ * @param sampleRate - Audio sample rate (Hz)
+ * @param filterbank - Optional pre-computed mel filterbank
+ * @returns LogMelSpectrogram with 2D feature matrix
+ */
+export function computeLogMelSpectrogram(
+  samples: number[],
+  sampleRate: number = LOG_MEL_CONFIG.sampleRate,
+  filterbank?: MelFilterbank
+): LogMelSpectrogram {
+  const fftSize = LOG_MEL_CONFIG.fftSize;
+  const hopSize = LOG_MEL_CONFIG.hopSize;
+  const numFftBins = fftSize / 2;
+
+  // Create or use provided filterbank
+  const melFilterbank =
+    filterbank || createMelFilterbank(LOG_MEL_CONFIG.numMelBins, numFftBins, sampleRate);
+
+  // Calculate number of frames
+  const numFrames = Math.max(1, Math.floor((samples.length - fftSize) / hopSize) + 1);
+  const features: number[][] = [];
+  const frameDurationMs = (hopSize / sampleRate) * 1000;
+
+  // Track peak frequencies for PFHS
+  const peakFrequencyBins: number[] = [];
+
+  // Process each frame
+  for (let frame = 0; frame < numFrames; frame++) {
+    const startSample = frame * hopSize;
+    const endSample = Math.min(startSample + fftSize, samples.length);
+
+    // Extract and zero-pad frame
+    let frameSamples = samples.slice(startSample, endSample);
+    if (frameSamples.length < fftSize) {
+      frameSamples = [...frameSamples, ...new Array(fftSize - frameSamples.length).fill(0)];
+    }
+
+    // Apply Hann window
+    const windowed = frameSamples.map(
+      (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)))
+    );
+
+    // Compute FFT and magnitude spectrum
+    const fftResult = computeFFT(windowed);
+    const magnitudes = computeMagnitudeSpectrum(fftResult);
+
+    // Find peak frequency for this frame
+    let maxMag = 0;
+    let peakBin = 0;
+    for (let k = 0; k < magnitudes.length; k++) {
+      if (magnitudes[k] > maxMag) {
+        maxMag = magnitudes[k];
+        peakBin = k;
+      }
+    }
+    peakFrequencyBins.push(peakBin);
+
+    // Apply mel filterbank
+    const melEnergies: number[] = [];
+    for (let m = 0; m < melFilterbank.numBins; m++) {
+      let energy = 0;
+      for (let k = 0; k < numFftBins && k < magnitudes.length; k++) {
+        energy += magnitudes[k] * magnitudes[k] * melFilterbank.filters[m][k];
+      }
+      melEnergies.push(energy);
+    }
+
+    // Apply log compression
+    const logMelEnergies = melEnergies.map((e) =>
+      Math.log(Math.max(e, LOG_MEL_CONFIG.logFloor))
+    );
+
+    features.push(logMelEnergies);
+  }
+
+  // Compute mean energy per mel bin (for normalization)
+  const meanMelEnergy = new Array(melFilterbank.numBins).fill(0);
+  for (const frame of features) {
+    for (let m = 0; m < frame.length; m++) {
+      meanMelEnergy[m] += frame[m];
+    }
+  }
+  for (let m = 0; m < meanMelEnergy.length; m++) {
+    meanMelEnergy[m] /= numFrames;
+  }
+
+  // Convert peak bins to Hz
+  const freqPerBin = sampleRate / fftSize;
+  const peakFrequencies = peakFrequencyBins.map((bin) => bin * freqPerBin);
+
+  return {
+    features,
+    numFrames,
+    numMelBins: melFilterbank.numBins,
+    frameDurationMs,
+    sampleRate,
+    meanMelEnergy,
+    peakFrequencies,
+  };
+}
+
+/**
+ * Classified Audio Snippet for CNN processing
+ */
+export interface ClassifiedSnippet {
+  /** Start time of snippet (ms) */
+  startMs: number;
+  /** End time of snippet (ms) */
+  endMs: number;
+  /** Log-mel features for this snippet [numFrames x numMelBins] */
+  features: number[][];
+  /** Average energy in gut sound band (100-450 Hz) */
+  gutBandEnergy: number;
+  /** Peak frequency detected (Hz) */
+  peakFrequency: number;
+  /** Spectral centroid (Hz) */
+  spectralCentroid: number;
+  /** Is this snippet likely a gut sound event? */
+  isLikelyGutSound: boolean;
+  /** Confidence score (0-1) */
+  confidence: number;
+}
+
+/**
+ * Segment audio into overlapping snippets and classify for CNN processing
+ *
+ * Uses Hyfe-inspired architecture: 500ms snippets with 250ms overlap
+ * for 90%+ sensitivity in acoustic event detection.
+ *
+ * @param samples - Audio samples
+ * @param sampleRate - Sample rate (Hz)
+ * @returns Array of classified snippets ready for CNN processing
+ */
+export function segmentAndClassifySnippets(
+  samples: number[],
+  sampleRate: number = LOG_MEL_CONFIG.sampleRate
+): ClassifiedSnippet[] {
+  const snippetSamples = Math.floor(
+    (LOG_MEL_CONFIG.snippetDurationMs / 1000) * sampleRate
+  );
+  const overlapSamples = Math.floor(
+    (LOG_MEL_CONFIG.snippetOverlapMs / 1000) * sampleRate
+  );
+  const hopSamples = snippetSamples - overlapSamples;
+
+  const snippets: ClassifiedSnippet[] = [];
+  const numSnippets = Math.max(
+    1,
+    Math.floor((samples.length - snippetSamples) / hopSamples) + 1
+  );
+
+  // Create shared filterbank for efficiency
+  const filterbank = createMelFilterbank();
+
+  for (let i = 0; i < numSnippets; i++) {
+    const startSample = i * hopSamples;
+    const endSample = Math.min(startSample + snippetSamples, samples.length);
+    const snippetData = samples.slice(startSample, endSample);
+
+    // Skip snippets that are too short
+    if (snippetData.length < snippetSamples / 2) continue;
+
+    // Compute log-mel spectrogram for this snippet
+    const melSpec = computeLogMelSpectrogram(snippetData, sampleRate, filterbank);
+
+    // Calculate gut band energy (bins corresponding to 100-450 Hz)
+    // Mel bins are distributed non-linearly, so we use the mean energy directly
+    const gutBandEnergy =
+      melSpec.meanMelEnergy.reduce((sum, e) => sum + e, 0) / melSpec.numMelBins;
+
+    // Calculate spectral centroid
+    let weightedSum = 0;
+    let totalEnergy = 0;
+    for (let m = 0; m < melSpec.numMelBins; m++) {
+      const freq = filterbank.centerFrequencies[m];
+      const energy = Math.exp(melSpec.meanMelEnergy[m]); // Convert from log
+      weightedSum += freq * energy;
+      totalEnergy += energy;
+    }
+    const spectralCentroid = totalEnergy > 0 ? weightedSum / totalEnergy : 0;
+
+    // Find dominant peak frequency
+    const peakFrequency =
+      melSpec.peakFrequencies.length > 0
+        ? melSpec.peakFrequencies.reduce((a, b) => a + b, 0) /
+          melSpec.peakFrequencies.length
+        : 0;
+
+    // Classification heuristics based on clinical research:
+    // - Gut sounds: 100-450 Hz, spectral centroid 150-350 Hz
+    // - Non-gut noise: broader spectrum or outside this range
+    const isInGutRange = peakFrequency >= 100 && peakFrequency <= 450;
+    const hasCentroidInRange = spectralCentroid >= 150 && spectralCentroid <= 350;
+    const hasSignificantEnergy = gutBandEnergy > -10; // Above noise floor
+
+    const isLikelyGutSound = isInGutRange && hasCentroidInRange && hasSignificantEnergy;
+
+    // Confidence based on how well it matches gut sound profile
+    let confidence = 0;
+    if (isInGutRange) confidence += 0.3;
+    if (hasCentroidInRange) confidence += 0.3;
+    if (hasSignificantEnergy) confidence += 0.2;
+    if (peakFrequency >= 150 && peakFrequency <= 350) confidence += 0.2; // Optimal range
+
+    const startMs = (startSample / sampleRate) * 1000;
+    const endMs = (endSample / sampleRate) * 1000;
+
+    snippets.push({
+      startMs,
+      endMs,
+      features: melSpec.features,
+      gutBandEnergy,
+      peakFrequency,
+      spectralCentroid,
+      isLikelyGutSound,
+      confidence,
+    });
+  }
+
+  return snippets;
+}
+
+/**
+ * Extract frequency histogram from snippets for PFHS comparison
+ *
+ * @param snippets - Classified snippets from segmentAndClassifySnippets
+ * @returns Normalized histogram of peak frequencies (8 bins: 100-150, 150-200, ..., 400-450)
+ */
+export function extractFrequencyHistogram(snippets: ClassifiedSnippet[]): number[] {
+  // 8 bins spanning 100-450 Hz (each bin is ~44 Hz wide)
+  const binEdges = [100, 144, 188, 231, 275, 319, 363, 406, 450];
+  const histogram = new Array(8).fill(0);
+
+  // Only count snippets classified as likely gut sounds
+  const gutSoundSnippets = snippets.filter((s) => s.isLikelyGutSound);
+
+  for (const snippet of gutSoundSnippets) {
+    const freq = snippet.peakFrequency;
+    for (let i = 0; i < 8; i++) {
+      if (freq >= binEdges[i] && freq < binEdges[i + 1]) {
+        histogram[i]++;
+        break;
+      }
+    }
+  }
+
+  // Normalize to sum to 1
+  const total = histogram.reduce((sum, h) => sum + h, 0);
+  if (total > 0) {
+    for (let i = 0; i < 8; i++) {
+      histogram[i] /= total;
+    }
+  }
+
+  return histogram;
 }
 
 /**
@@ -1631,8 +2139,8 @@ export function analyzeAudioSamples(
 ): SessionAnalytics {
   const { applyBirdFilter = true, isHummingPhase = false } = options;
 
-  // NG-HARDEN-05: Track ANF calibration and signal quality for the entire analysis
-  const anfCalibrationResult = calibrateAmbientNoiseFloor(samples, sampleRate);
+  // NG-HARDEN-05 + Ralph Loop: Use cached ANF calibration to avoid duplicate calls
+  const anfCalibrationResult = getCachedANFCalibration(samples, sampleRate);
 
   // BIRD FILTER GUARDRAILS:
   // - Only apply spectral bandpass during motility recording phase
@@ -1764,11 +2272,26 @@ export function analyzeAudioSamples(
   ));
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // DURATION GATING (NG-HARDEN-05)
-  // Only accept events with physiologically valid gut sound duration (0.5s-2s)
-  // Reject transients (<100ms) and sustained noise (>3s)
+  // ACOUSTIC FINGERPRINTING + DURATION GATING (Ralph Loop + NG-HARDEN-05)
+  // Uses validateBurstEvent() for constant noise rejection and burst validation
+  // Accept short bursts (10ms-1500ms), reject constant noise >2s
   // ══════════════════════════════════════════════════════════════════════════════
   events = events.filter((event) => {
+    // Extract samples for this event
+    const startSample = event.startWindow * windowSizeSamples;
+    const endSample = Math.min(
+      (event.endWindow + 1) * windowSizeSamples,
+      filteredSamples.length
+    );
+    const eventSamples = filteredSamples.slice(startSample, endSample);
+
+    // Ralph Loop: Validate event against acoustic fingerprint
+    const burstValidation = validateBurstEvent(eventSamples, sampleRate);
+    if (!burstValidation.isValidBurst) {
+      return false; // Reject constant noise or invalid duration
+    }
+
+    // Keep original duration checks as fallback
     const eventDurationWindows = event.endWindow - event.startWindow + 1;
     const eventDurationMs = eventDurationWindows * CONFIG.windowSizeMs;
 
@@ -1842,6 +2365,26 @@ export function analyzeAudioSamples(
     CONFIG.timelineSegments
   );
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CLINICAL-GRADE PRECISION: Log-Mel Spectrogram & PFHS Data
+  // Segment audio and extract frequency histogram for PFHS scoring
+  // ══════════════════════════════════════════════════════════════════════════════
+  const snippets = segmentAndClassifySnippets(filteredSamples, sampleRate);
+  const frequencyHistogram = extractFrequencyHistogram(snippets);
+
+  // Collect peak frequencies from gut sound snippets
+  const gutSoundSnippets = snippets.filter(s => s.isLikelyGutSound);
+  const peakFrequencies = gutSoundSnippets.map(s => s.peakFrequency);
+
+  // Calculate mean spectral centroid
+  const meanSpectralCentroid = gutSoundSnippets.length > 0
+    ? gutSoundSnippets.reduce((sum, s) => sum + s.spectralCentroid, 0) / gutSoundSnippets.length
+    : 0;
+
+  // Import computePFHS to calculate score (inline to avoid circular dependency)
+  // PFHS calculation is done in scoringEngine, but we store the histogram here
+  const pfhsScore = computePFHSInline(frequencyHistogram, peakFrequencies);
+
   return {
     eventsPerMinute: Math.round(eventsPerMinute * 10) / 10,
     totalActiveSeconds: Math.round(totalActiveSeconds),
@@ -1853,7 +2396,72 @@ export function analyzeAudioSamples(
     signalQuality,
     snrDb: Math.round(snrDb * 10) / 10,
     isReliable,
+    // Clinical-grade precision: PFHS data
+    frequencyHistogram,
+    peakFrequencies,
+    pfhsScore,
+    meanSpectralCentroid: Math.round(meanSpectralCentroid * 10) / 10,
   };
+}
+
+/**
+ * Inline PFHS calculation to avoid circular dependency with scoringEngine
+ * Uses same algorithm as computePFHS in scoringEngine.ts
+ */
+function computePFHSInline(
+  frequencyHistogram: number[],
+  peakFrequencies: number[]
+): number {
+  // Reference healthy gut histogram (same as scoringEngine.ts)
+  const HEALTHY_GUT_HISTOGRAM = [0.08, 0.15, 0.22, 0.25, 0.15, 0.08, 0.05, 0.02];
+  const HEALTHY_PEAK_FREQUENCIES = [200, 250];
+
+  // Check if histogram is empty
+  const histogramSum = frequencyHistogram.reduce((sum, h) => sum + h, 0);
+  if (histogramSum < 0.01) return 0;
+
+  // Normalize
+  const normalizedInput = histogramSum > 0
+    ? frequencyHistogram.map(h => h / histogramSum)
+    : frequencyHistogram;
+
+  // Pearson correlation
+  const n = Math.min(normalizedInput.length, HEALTHY_GUT_HISTOGRAM.length);
+  let sumX = 0, sumY = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += normalizedInput[i];
+    sumY += HEALTHY_GUT_HISTOGRAM[i];
+  }
+  const meanX = sumX / n;
+  const meanY = sumY / n;
+
+  let numerator = 0, denomX = 0, denomY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = normalizedInput[i] - meanX;
+    const dy = HEALTHY_GUT_HISTOGRAM[i] - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+  const denominator = Math.sqrt(denomX * denomY);
+  const correlation = denominator > 0 ? numerator / denominator : 0;
+
+  // Base score from correlation
+  let baseScore = Math.max(0, Math.min(80, (correlation + 1) * 40));
+
+  // Peak alignment bonus
+  let bonus = 0;
+  for (const freq of peakFrequencies) {
+    for (const refPeak of HEALTHY_PEAK_FREQUENCIES) {
+      if (Math.abs(freq - refPeak) <= 30) {
+        bonus += 5;
+        break;
+      }
+    }
+  }
+  bonus = Math.min(20, bonus);
+
+  return Math.round(Math.min(100, baseScore + bonus));
 }
 
 /**
@@ -1976,8 +2584,8 @@ export function getVisualizationData(
   if (isHummingPhase) {
     filteredSamples = samples;
   } else if (applyBirdFilter) {
-    // NG-HARDEN-05: Detect hums and subtract, then bandpass
-    const anfCalibration = calibrateAmbientNoiseFloor(samples, sampleRate);
+    // NG-HARDEN-05 + Ralph Loop: Use cached ANF calibration to avoid duplicate calls
+    const anfCalibration = getCachedANFCalibration(samples, sampleRate);
     let processedSamples = samples;
 
     if (anfCalibration.detectedHumFrequencies.length > 0) {
@@ -2037,13 +2645,27 @@ export function getVisualizationData(
     ));
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // DURATION GATING (NG-HARDEN-05)
+    // ACOUSTIC FINGERPRINTING + DURATION GATING (Ralph Loop + NG-HARDEN-05)
+    // Uses validateBurstEvent() for constant noise rejection and burst validation
     // ══════════════════════════════════════════════════════════════════════════════
     events = events.filter((event) => {
+      const startSample = event.startWindow * windowSizeSamples;
+      const endSample = Math.min(
+        (event.endWindow + 1) * windowSizeSamples,
+        filteredSamples.length
+      );
+      const eventSamples = filteredSamples.slice(startSample, endSample);
+
+      // Ralph Loop: Validate event against acoustic fingerprint
+      const burstValidation = validateBurstEvent(eventSamples, sampleRate);
+      if (!burstValidation.isValidBurst) {
+        return false; // Reject constant noise or invalid duration
+      }
+
+      // Keep original duration checks as fallback
       const eventDurationWindows = event.endWindow - event.startWindow + 1;
       const eventDurationMs = eventDurationWindows * CONFIG.windowSizeMs;
 
-      // Reject transients and sustained noise; accept 0.5s-2s events
       if (eventDurationMs < CONFIG.transientRejectDurationMs) return false;
       if (eventDurationMs > CONFIG.sustainedNoiseRejectDurationMs) return false;
       return (

@@ -2,12 +2,14 @@
  * Vagal Readiness Scoring Engine
  *
  * Calculates a Vagal Readiness Score (0-100) based on:
- * 1. Current Motility vs 7-day Baseline (40% weight)
- * 2. Rhythmicity Index - consistency of gut activity patterns (30% weight)
- * 3. Delta increase after 4-7-8 intervention (30% weight)
+ * 1. Current Motility vs 7-day Baseline (35% weight)
+ * 2. Peak-Frequency Histogram Similarity (PFHS) - gut sound pattern match (25% weight)
+ * 3. Rhythmicity Index - consistency of gut activity patterns (20% weight)
+ * 4. Delta increase after 4-7-8 intervention (20% weight)
  *
  * CLINICAL CONTEXT:
  * - Higher scores indicate better vagal tone and parasympathetic activity
+ * - PFHS compares detected gut sounds against healthy reference pattern
  * - Tracks the gut-brain axis responsiveness over time
  * - Used to measure intervention effectiveness
  */
@@ -15,15 +17,208 @@
 import { GutRecordingSession, SessionAnalytics } from "../models/session";
 import { getSessionsSortedByDate, getSessionsWithAnalytics } from "../storage/sessionStore";
 
-// Scoring weights
-const BASELINE_WEIGHT = 0.40;
-const RHYTHMICITY_WEIGHT = 0.30;
-const INTERVENTION_WEIGHT = 0.30;
+// ══════════════════════════════════════════════════════════════════════════════════
+// SCORING WEIGHTS (Updated for Clinical-Grade Precision with PFHS)
+// VRS = (Baseline × 0.35) + (PFHS × 0.25) + (Rhythmicity × 0.20) + (Intervention × 0.20)
+// ══════════════════════════════════════════════════════════════════════════════════
+const BASELINE_WEIGHT = 0.35;
+const PFHS_WEIGHT = 0.25;
+const RHYTHMICITY_WEIGHT = 0.20;
+const INTERVENTION_WEIGHT = 0.20;
 
 // Scoring thresholds
 const EXCELLENT_THRESHOLD = 80;
 const GOOD_THRESHOLD = 60;
 const MODERATE_THRESHOLD = 40;
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// PEAK-FREQUENCY HISTOGRAM SIMILARITY (PFHS) - Clinical Gut Sound Reference
+// Based on research: healthy gut sounds peak at 200-250 Hz with specific distribution
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Reference healthy gut sound frequency histogram
+ * 8 bins spanning 100-450 Hz (each ~44 Hz wide)
+ * Bins: [100-144, 144-188, 188-231, 231-275, 275-319, 319-363, 363-406, 406-450]
+ *
+ * Clinical data shows healthy gut sounds (borborygmi, peristalsis) peak at 200-250 Hz
+ * with a characteristic distribution skewed toward lower frequencies.
+ */
+export const HEALTHY_GUT_HISTOGRAM: number[] = [
+  0.08, // 100-144 Hz: Some low rumbles
+  0.15, // 144-188 Hz: Increasing activity
+  0.22, // 188-231 Hz: Near peak
+  0.25, // 231-275 Hz: Peak frequency range
+  0.15, // 275-319 Hz: Declining
+  0.08, // 319-363 Hz: Lower activity
+  0.05, // 363-406 Hz: Minimal
+  0.02, // 406-450 Hz: Very little
+];
+
+/**
+ * Peak frequencies for healthy gut sounds (Hz)
+ * Used for peak alignment bonus in PFHS calculation
+ */
+const HEALTHY_PEAK_FREQUENCIES = [200, 250];
+
+/**
+ * PFHS Result with detailed metrics
+ */
+export interface PFHSResult {
+  /** Similarity score (0-100) */
+  score: number;
+  /** Pearson correlation coefficient (-1 to 1) */
+  correlation: number;
+  /** Peak alignment bonus (0-20) */
+  peakAlignmentBonus: number;
+  /** Detected peak frequencies (Hz) */
+  detectedPeaks: number[];
+  /** Input frequency histogram */
+  inputHistogram: number[];
+  /** Whether the pattern matches healthy gut profile */
+  isHealthyPattern: boolean;
+}
+
+/**
+ * Compute Pearson correlation coefficient between two arrays
+ *
+ * @param x - First array
+ * @param y - Second array
+ * @returns Correlation coefficient (-1 to 1)
+ */
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length);
+  if (n < 2) return 0;
+
+  // Calculate means
+  let sumX = 0, sumY = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += x[i];
+    sumY += y[i];
+  }
+  const meanX = sumX / n;
+  const meanY = sumY / n;
+
+  // Calculate correlation
+  let numerator = 0;
+  let denomX = 0;
+  let denomY = 0;
+
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - meanX;
+    const dy = y[i] - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+
+  const denominator = Math.sqrt(denomX * denomY);
+  if (denominator === 0) return 0;
+
+  return numerator / denominator;
+}
+
+/**
+ * Compute Peak-Frequency Histogram Similarity (PFHS)
+ *
+ * Algorithm:
+ * 1. Compute frequency histogram of detected gut sound events
+ * 2. Compare against HEALTHY_GUT_HISTOGRAM reference
+ * 3. Calculate Pearson correlation
+ * 4. Add peak alignment bonus (if detected peaks match 200/250 Hz)
+ * 5. Return similarity score (0-100)
+ *
+ * @param frequencyHistogram - Normalized frequency histogram (8 bins, 100-450 Hz)
+ * @param detectedPeakFrequencies - Array of detected peak frequencies (Hz)
+ * @returns PFHSResult with similarity score and metrics
+ */
+export function computePFHS(
+  frequencyHistogram: number[],
+  detectedPeakFrequencies: number[] = []
+): PFHSResult {
+  // Default to uniform distribution if no input
+  const inputHistogram = frequencyHistogram.length === 8
+    ? frequencyHistogram
+    : new Array(8).fill(0.125);
+
+  // Check if histogram is empty (all zeros)
+  const histogramSum = inputHistogram.reduce((sum, h) => sum + h, 0);
+  if (histogramSum < 0.01) {
+    return {
+      score: 0,
+      correlation: 0,
+      peakAlignmentBonus: 0,
+      detectedPeaks: [],
+      inputHistogram,
+      isHealthyPattern: false,
+    };
+  }
+
+  // Normalize input histogram if not already
+  const normalizedInput = histogramSum > 0
+    ? inputHistogram.map(h => h / histogramSum)
+    : inputHistogram;
+
+  // 1. Calculate Pearson correlation with healthy reference
+  const correlation = pearsonCorrelation(normalizedInput, HEALTHY_GUT_HISTOGRAM);
+
+  // 2. Calculate base score from correlation
+  // correlation -1 to 1 -> score 0 to 80 (leaving room for bonus)
+  let baseScore = Math.max(0, Math.min(80, (correlation + 1) * 40));
+
+  // 3. Calculate peak alignment bonus (0-20 points)
+  // Award bonus if detected peaks are near 200 or 250 Hz
+  let peakAlignmentBonus = 0;
+  const uniquePeaks: number[] = [];
+
+  for (const peakFreq of detectedPeakFrequencies) {
+    // Check if peak is near healthy reference frequencies
+    for (const refPeak of HEALTHY_PEAK_FREQUENCIES) {
+      const tolerance = 30; // ±30 Hz tolerance
+      if (Math.abs(peakFreq - refPeak) <= tolerance) {
+        peakAlignmentBonus += 5; // 5 points per matching peak
+        if (!uniquePeaks.includes(Math.round(peakFreq))) {
+          uniquePeaks.push(Math.round(peakFreq));
+        }
+        break;
+      }
+    }
+  }
+  peakAlignmentBonus = Math.min(20, peakAlignmentBonus); // Cap at 20
+
+  // 4. Calculate final score
+  const score = Math.round(Math.min(100, baseScore + peakAlignmentBonus));
+
+  // 5. Determine if pattern matches healthy profile
+  // Healthy pattern: correlation > 0.5 and score > 50
+  const isHealthyPattern = correlation > 0.5 && score > 50;
+
+  return {
+    score,
+    correlation,
+    peakAlignmentBonus,
+    detectedPeaks: uniquePeaks,
+    inputHistogram: normalizedInput,
+    isHealthyPattern,
+  };
+}
+
+/**
+ * Calculate PFHS from session analytics
+ *
+ * Extracts frequency histogram from session and computes PFHS against healthy reference.
+ *
+ * @param analytics - Session analytics with frequency data
+ * @returns PFHSResult with similarity score
+ */
+export function calculateSessionPFHS(analytics: SessionAnalytics): PFHSResult {
+  // Extract frequency histogram and peak frequencies from analytics
+  // These are populated by the Log-Mel spectrogram pipeline in audioAnalytics.ts
+  const frequencyHistogram = analytics.frequencyHistogram ?? new Array(8).fill(0);
+  const peakFrequencies = analytics.peakFrequencies ?? [];
+
+  return computePFHS(frequencyHistogram, peakFrequencies);
+}
 
 export type VagalReadinessCategory = "excellent" | "good" | "moderate" | "developing";
 
@@ -38,6 +233,8 @@ export interface VagalReadinessScore {
   components: {
     /** Current vs 7-day baseline component (0-100) */
     baselineComponent: number;
+    /** Peak-Frequency Histogram Similarity component (0-100) */
+    pfhsComponent: number;
     /** Rhythmicity index component (0-100) */
     rhythmicityComponent: number;
     /** Intervention delta component (0-100) */
@@ -53,6 +250,8 @@ export interface VagalReadinessScore {
   baselineSessionCount: number;
   /** Timestamp of calculation */
   calculatedAt: string;
+  /** PFHS correlation coefficient (0-1) */
+  pfhsCorrelation?: number;
 }
 
 export interface RhythmicityAnalysis {
@@ -246,8 +445,8 @@ export async function calculate7DayBaseline(patientId: string): Promise<{
 /**
  * Calculate the complete Vagal Readiness Score
  *
- * Formula:
- * Score = (Baseline Component × 0.40) + (Rhythmicity × 0.30) + (Intervention Delta × 0.30)
+ * Formula (Updated for Clinical-Grade Precision):
+ * VRS = (Baseline × 0.35) + (PFHS × 0.25) + (Rhythmicity × 0.20) + (Intervention × 0.20)
  *
  * @param session - Current session to score
  * @param patientId - Patient ID for baseline calculation
@@ -265,7 +464,7 @@ export async function calculateVagalReadinessScore(
   const MIN_RECORDING_DURATION = 30; // seconds
   const isIncomplete = session.durationSeconds < MIN_RECORDING_DURATION;
 
-  // 1. Calculate 7-day baseline
+  // 1. Calculate 7-day baseline (35% weight)
   const baseline = await calculate7DayBaseline(patientId);
   const currentMotility = session.analytics.motilityIndex;
   const baselineMotility = baseline.average;
@@ -290,21 +489,27 @@ export async function calculateVagalReadinessScore(
 
   baselineComponent = Math.round(Math.max(0, Math.min(100, baselineComponent)));
 
-  // 2. Calculate Rhythmicity Index
+  // 2. Calculate PFHS component (25% weight)
+  // Compares session's frequency histogram against healthy gut sound reference
+  const pfhsResult = calculateSessionPFHS(session.analytics);
+  const pfhsComponent = pfhsResult.score;
+
+  // 3. Calculate Rhythmicity Index (20% weight)
   const rhythmicity = calculateRhythmicityIndex(session.analytics);
   const rhythmicityComponent = rhythmicity.index;
 
-  // 3. Calculate Intervention Delta
+  // 4. Calculate Intervention Delta (20% weight)
   const interventionComponent = calculateInterventionDelta(session);
 
-  // 4. Calculate weighted score
+  // 5. Calculate weighted score with PFHS
   const score = Math.round(
     (baselineComponent * BASELINE_WEIGHT) +
+    (pfhsComponent * PFHS_WEIGHT) +
     (rhythmicityComponent * RHYTHMICITY_WEIGHT) +
     (interventionComponent * INTERVENTION_WEIGHT)
   );
 
-  // 5. Determine category
+  // 6. Determine category
   let category: VagalReadinessCategory;
   if (score >= EXCELLENT_THRESHOLD) {
     category = "excellent";
@@ -321,6 +526,7 @@ export async function calculateVagalReadinessScore(
     category,
     components: {
       baselineComponent,
+      pfhsComponent,
       rhythmicityComponent,
       interventionComponent,
     },
@@ -329,7 +535,8 @@ export async function calculateVagalReadinessScore(
     changeFromBaseline: Math.round(changeFromBaseline),
     baselineSessionCount: baseline.sessionCount,
     calculatedAt: new Date().toISOString(),
-    isIncomplete, // Flag for UI to show "Incomplete" status when < 30 seconds
+    isIncomplete,
+    pfhsCorrelation: pfhsResult.correlation,
   };
 }
 

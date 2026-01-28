@@ -217,6 +217,26 @@ export interface SessionAnalytics {
   signalQuality?: SignalQualityLevel;
   snrDb?: number;
   isReliable?: boolean;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CLINICAL-GRADE PRECISION METRICS (PFHS Pipeline)
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  /** Frequency histogram for PFHS comparison
+   *  8 bins spanning 100-450 Hz, normalized (sum to 1)
+   *  Used by scoringEngine to compute Peak-Frequency Histogram Similarity */
+  frequencyHistogram?: number[];
+
+  /** Detected peak frequencies (Hz) from gut sound events
+   *  Used for peak alignment bonus in PFHS calculation */
+  peakFrequencies?: number[];
+
+  /** PFHS score (0-100) - similarity to healthy gut sound pattern */
+  pfhsScore?: number;
+
+  /** Mean spectral centroid of detected events (Hz)
+   *  Healthy gut sounds typically have centroid 150-350 Hz */
+  meanSpectralCentroid?: number;
 }
 
 // State of Mind before recording
