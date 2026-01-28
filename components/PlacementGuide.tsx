@@ -31,6 +31,8 @@ interface PlacementGuideProps {
   onRetrySignalCheck: () => void;
   /** Callback to close/dismiss the guide */
   onClose?: () => void;
+  /** Ralph Loop: Whether calibration is completed (from session context) */
+  isCalibrated?: boolean;
 }
 
 // Anatomical landmarks for LRQ placement
@@ -352,6 +354,7 @@ export default function PlacementGuide({
   onStartSignalCheck,
   onRetrySignalCheck,
   onClose,
+  isCalibrated,
 }: PlacementGuideProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -606,12 +609,14 @@ export default function PlacementGuide({
         </TouchableOpacity>
       )}
 
-      {step === 3 && signalPassed && (
+      {step === 3 && (signalPassed === true || isCalibrated) && (
         <TouchableOpacity
           style={[styles.nextButton, styles.startButton]}
           onPress={onPlacementConfirmed}
         >
-          <Text style={styles.nextButtonText}>Start Recording</Text>
+          <Text style={[styles.nextButtonText, styles.startButtonText]}>
+            {signalPassed ? "Start Recording" : "Continue"}
+          </Text>
         </TouchableOpacity>
       )}
     </ScrollView>
@@ -848,6 +853,9 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: typography.sizes.base,
     fontWeight: typography.weights.semibold,
+  },
+  startButtonText: {
+    color: colors.background,
   },
   landmarksInfo: {
     marginTop: spacing.lg,
