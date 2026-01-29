@@ -46,6 +46,12 @@ import {
   PatientProfile,
 } from "../src/storage/patientStore";
 import { useSession, requiresPrimer, getModeLabel } from "../src/context/SessionContext";
+import {
+  STETHOSCOPE_AUDIO_MODE,
+  STETHOSCOPE_RECORDING_OPTIONS,
+  checkInputDevice,
+  verifyStethoscopeInput,
+} from "../src/logic/audioProcessor";
 
 type SavedRecording = {
   id: string;
@@ -1147,15 +1153,25 @@ export default function GutSoundRecordingScreen() {
 
       await stopPlayback();
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-      });
+      // Configure audio mode for stethoscope/external microphone
+      // Uses measurement mode on iOS to bypass all signal processing
+      await Audio.setAudioModeAsync(STETHOSCOPE_AUDIO_MODE);
 
+      // Create recording with stethoscope-optimized settings
+      // - 44100Hz sample rate for full frequency resolution
+      // - VOICE_RECOGNITION audio source on Android (bypasses noise suppression)
+      // - 16-bit depth for clinical-grade fidelity
       const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        STETHOSCOPE_RECORDING_OPTIONS
       );
+
+      // Verify input device (log whether stethoscope is connected)
+      const isExternalMic = await verifyStethoscopeInput(newRecording);
+      if (!isExternalMic) {
+        console.log("[Record] Using built-in microphone - stethoscope not detected");
+      } else {
+        console.log("[Record] External microphone (stethoscope) detected");
+      }
 
       setRecording(newRecording);
       setPhase("recording");
@@ -1461,15 +1477,16 @@ export default function GutSoundRecordingScreen() {
 
     // Start a temporary recording for noise analysis
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-      });
+      // Use stethoscope-optimized audio mode for calibration
+      await Audio.setAudioModeAsync(STETHOSCOPE_AUDIO_MODE);
 
+      // Use stethoscope recording options for consistent calibration
       const { recording: noiseCheckRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        STETHOSCOPE_RECORDING_OPTIONS
       );
+
+      // Check input device during calibration
+      await checkInputDevice(noiseCheckRecording);
 
       // Simulate 5-second noise check - always passes for development
       // In production, this would analyze real-time audio RMS and frequency

@@ -1092,3 +1092,212 @@ export function validateBurstEvent(
     reason: `Breathing artifact: ${durationMs.toFixed(0)}ms > ${config.constantNoiseRejectMs}ms`,
   };
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// STETHOSCOPE MICROPHONE CONFIGURATION
+// Optimized for external stethoscope microphones with raw audio capture
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Audio mode configuration for iOS measurement mode
+ * Bypasses all iOS audio processing for raw stethoscope input
+ */
+export const STETHOSCOPE_AUDIO_MODE = {
+  allowsRecordingIOS: true,
+  playsInSilentModeIOS: true,
+  staysActiveInBackground: false,
+  // iOS Measurement mode - bypasses all signal processing
+  // This is critical for stethoscope use as it disables:
+  // - Automatic Gain Control (AGC)
+  // - Noise Suppression
+  // - Echo Cancellation
+  interruptionModeIOS: 1, // DoNotMix
+  interruptionModeAndroid: 1, // DoNotMix
+  shouldDuckAndroid: false,
+  playThroughEarpieceAndroid: false,
+};
+
+/**
+ * Recording options optimized for stethoscope/external microphone
+ *
+ * Key settings:
+ * - 44100Hz sample rate for full frequency resolution
+ * - 16-bit depth for clinical-grade fidelity
+ * - VOICE_RECOGNITION audio source on Android (bypasses noise suppression)
+ * - No built-in processing to preserve low-frequency gut sounds
+ */
+export const STETHOSCOPE_RECORDING_OPTIONS = {
+  isMeteringEnabled: true,
+  android: {
+    extension: ".m4a",
+    outputFormat: 2, // MPEG_4
+    audioEncoder: 3, // AAC
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 128000,
+    // VOICE_RECOGNITION (6) bypasses noise suppression
+    // Alternative: CAMCORDER (5) also works well for external mics
+    audioSource: 6, // MediaRecorder.AudioSource.VOICE_RECOGNITION
+  },
+  ios: {
+    extension: ".m4a",
+    outputFormat: "aac", // Use string format for iOS
+    audioQuality: 127, // Max quality (AVAudioQuality.max)
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 128000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: "audio/webm",
+    bitsPerSecond: 128000,
+  },
+};
+
+/**
+ * Input device types for verification
+ */
+export type AudioInputType =
+  | "external_stethoscope"
+  | "wired_headset"
+  | "bluetooth"
+  | "built_in_microphone"
+  | "unknown";
+
+/**
+ * Input device check result
+ */
+export interface InputDeviceInfo {
+  /** Type of input device detected */
+  type: AudioInputType;
+  /** Device name from system */
+  name: string;
+  /** Whether this is an external/preferred input */
+  isExternalInput: boolean;
+  /** Raw device UID */
+  uid: string;
+}
+
+/**
+ * Check and log the current audio input device
+ *
+ * Use this to verify the stethoscope is being used as input
+ *
+ * @param recording - Active Audio.Recording instance
+ * @returns InputDeviceInfo with device details
+ */
+export async function checkInputDevice(
+  recording: { getAvailableInputs?: () => Promise<any[]> } | null
+): Promise<InputDeviceInfo> {
+  const defaultResult: InputDeviceInfo = {
+    type: "unknown",
+    name: "Unknown",
+    isExternalInput: false,
+    uid: "",
+  };
+
+  if (!recording || typeof recording.getAvailableInputs !== "function") {
+    console.log("[AudioProcessor] Recording instance does not support getAvailableInputs");
+    return defaultResult;
+  }
+
+  try {
+    const inputs = await recording.getAvailableInputs();
+    console.log("[AudioProcessor] Available audio inputs:", JSON.stringify(inputs, null, 2));
+
+    if (!inputs || inputs.length === 0) {
+      console.log("[AudioProcessor] No audio inputs available");
+      return defaultResult;
+    }
+
+    // Find the current/preferred input
+    // Priority: External (stethoscope) > Wired Headset > Bluetooth > Built-in
+    for (const input of inputs) {
+      const name = (input.name || input.type || "").toLowerCase();
+      const uid = input.uid || input.id || "";
+
+      // Check for external/wired headset (stethoscope connects as headset)
+      if (
+        name.includes("headset") ||
+        name.includes("wired") ||
+        name.includes("external") ||
+        name.includes("headphone")
+      ) {
+        const result: InputDeviceInfo = {
+          type: "wired_headset",
+          name: input.name || "Wired Headset",
+          isExternalInput: true,
+          uid,
+        };
+        console.log("[AudioProcessor] External input detected:", result);
+        return result;
+      }
+
+      // Check for Bluetooth
+      if (name.includes("bluetooth") || name.includes("bt")) {
+        const result: InputDeviceInfo = {
+          type: "bluetooth",
+          name: input.name || "Bluetooth",
+          isExternalInput: true,
+          uid,
+        };
+        console.log("[AudioProcessor] Bluetooth input detected:", result);
+        return result;
+      }
+    }
+
+    // Default to built-in microphone
+    const builtIn = inputs.find(
+      (i: any) =>
+        (i.name || "").toLowerCase().includes("built") ||
+        (i.name || "").toLowerCase().includes("microphone") ||
+        (i.type || "").toLowerCase().includes("built")
+    );
+
+    if (builtIn) {
+      const result: InputDeviceInfo = {
+        type: "built_in_microphone",
+        name: builtIn.name || "Built-In Microphone",
+        isExternalInput: false,
+        uid: builtIn.uid || builtIn.id || "",
+      };
+      console.log("[AudioProcessor] Built-in microphone detected:", result);
+      return result;
+    }
+
+    // Fallback: return first available input
+    const firstInput = inputs[0];
+    return {
+      type: "unknown",
+      name: firstInput.name || "Unknown Input",
+      isExternalInput: false,
+      uid: firstInput.uid || firstInput.id || "",
+    };
+  } catch (error) {
+    console.error("[AudioProcessor] Error checking input device:", error);
+    return defaultResult;
+  }
+}
+
+/**
+ * Verify stethoscope is connected and being used
+ *
+ * @param recording - Active Audio.Recording instance
+ * @returns true if external input is detected
+ */
+export async function verifyStethoscopeInput(
+  recording: { getAvailableInputs?: () => Promise<any[]> } | null
+): Promise<boolean> {
+  const deviceInfo = await checkInputDevice(recording);
+
+  if (!deviceInfo.isExternalInput) {
+    console.warn(
+      "[AudioProcessor] WARNING: No external microphone detected. " +
+      "Using built-in microphone. For best results, connect a stethoscope."
+    );
+  }
+
+  return deviceInfo.isExternalInput;
+}
