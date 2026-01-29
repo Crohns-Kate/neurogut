@@ -341,7 +341,7 @@ export default function GuidedCheckInScreen() {
       <View style={styles.header}>
         <View style={styles.brandContainer}>
           <Text style={styles.brandIcon}>🌿</Text>
-          <Text style={styles.brandName}>Neurogut</Text>
+          <Text style={styles.brandName}>NeuroGut Acoustics</Text>
         </View>
         <Text style={styles.greeting}>{getGreeting()}</Text>
         <Text style={styles.tagline}>Ready for your daily check-in?</Text>
@@ -533,7 +533,7 @@ export default function GuidedCheckInScreen() {
       {sessionCount === 0 && (
         <View style={styles.emptyState}>
           <Text style={styles.emptyStateIcon}>🌱</Text>
-          <Text style={styles.emptyStateTitle}>Welcome to Neurogut</Text>
+          <Text style={styles.emptyStateTitle}>Welcome to NeuroGut Acoustics</Text>
           <Text style={styles.emptyStateText}>
             Start your first daily check-in to begin tracking your gut-brain wellness journey.
           </Text>
