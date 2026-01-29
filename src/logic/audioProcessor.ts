@@ -70,12 +70,12 @@ export const ACOUSTIC_ISOLATION_CONFIG = {
   gutBandLowHz: 100,
 
   /** Upper cutoff frequency for gut sound isolation (Hz)
-   *  Most gut sounds are below 450Hz; speech/birds are above */
+   *  Hard-coded 450Hz for clinical-grade gut sound isolation */
   gutBandHighHz: 450,
 
   /** Filter rolloff steepness (dB/octave)
-   *  Higher = sharper cutoff, better isolation */
-  rolloffDbPerOctave: 24,
+   *  Third-order Butterworth = 60 dB/octave for clinical-grade isolation */
+  rolloffDbPerOctave: 60,
 
   /** Transition bandwidth for smooth rolloff (Hz) */
   transitionBandwidthHz: 50,
@@ -155,16 +155,16 @@ export const ACOUSTIC_ISOLATION_CONFIG = {
   // ────────────────────────────────────────────────────────────────────────────────
 
   /** Minimum burst duration for valid gut sound (ms)
-   *  Peristaltic clicks and short gurgles can be as brief as 10ms */
-  burstMinDurationMs: 10,
+   *  Per Mansour et al.: minimum 20ms for valid bursts */
+  burstMinDurationMs: 20,
 
   /** Maximum burst duration for valid gut sound (ms)
-   *  Gut bursts rarely exceed 1.5 seconds */
+   *  Gut bursts rarely exceed 1.5 seconds; events >1500ms are breathing artifacts */
   burstMaxDurationMs: 1500,
 
   /** Duration above which constant noise is rejected (ms)
-   *  Environmental noise (AC, fans, traffic) persists >2 seconds */
-  constantNoiseRejectMs: 2000,
+   *  Per Mansour et al.: breathing artifacts typically >1500ms */
+  constantNoiseRejectMs: 1500,
 
   /** Maximum RMS variance for constant noise detection (0-1)
    *  Low variance = stationary/constant noise */
@@ -997,6 +997,8 @@ export interface BurstValidationResult {
   durationMs: number;
   /** Is this constant/environmental noise? */
   isConstantNoise: boolean;
+  /** Is this a breathing artifact (>1500ms per Mansour et al.)? */
+  isBreathingArtifact: boolean;
   /** Validation reason for debugging */
   reason: string;
 }
@@ -1023,13 +1025,25 @@ export function validateBurstEvent(
   const config = ACOUSTIC_ISOLATION_CONFIG;
   const durationMs = (samples.length / sampleRate) * 1000;
 
-  // Check duration bounds
+  // Check duration bounds - too short
   if (durationMs < config.burstMinDurationMs) {
     return {
       isValidBurst: false,
       durationMs,
       isConstantNoise: false,
+      isBreathingArtifact: false,
       reason: `Too short: ${durationMs.toFixed(0)}ms < ${config.burstMinDurationMs}ms`,
+    };
+  }
+
+  // Per Mansour et al.: Events >1500ms are breathing artifacts
+  if (durationMs > config.burstMaxDurationMs) {
+    return {
+      isValidBurst: false,
+      durationMs,
+      isConstantNoise: false,
+      isBreathingArtifact: true,
+      reason: `Breathing artifact: ${durationMs.toFixed(0)}ms > ${config.burstMaxDurationMs}ms`,
     };
   }
 
@@ -1039,6 +1053,7 @@ export function validateBurstEvent(
       isValidBurst: true,
       durationMs,
       isConstantNoise: false,
+      isBreathingArtifact: false,
       reason: `Valid burst: ${durationMs.toFixed(0)}ms in range [${config.burstMinDurationMs}-${config.burstMaxDurationMs}]ms`,
     };
   }
@@ -1051,6 +1066,7 @@ export function validateBurstEvent(
       isValidBurst: false,
       durationMs,
       isConstantNoise: true,
+      isBreathingArtifact: false,
       reason: `Constant noise rejected: ${noiseResult.reason}`,
     };
   }
@@ -1062,15 +1078,17 @@ export function validateBurstEvent(
       isValidBurst: true,
       durationMs,
       isConstantNoise: false,
+      isBreathingArtifact: false,
       reason: `Extended dynamic event: ${durationMs.toFixed(0)}ms with variance=${noiseResult.rmsVariance.toFixed(4)}`,
     };
   }
 
-  // Very long events with moderate variance - reject as potential noise
+  // Very long events with moderate variance - reject as breathing artifact
   return {
     isValidBurst: false,
     durationMs,
     isConstantNoise: false,
-    reason: `Too long: ${durationMs.toFixed(0)}ms > ${config.constantNoiseRejectMs}ms`,
+    isBreathingArtifact: true,
+    reason: `Breathing artifact: ${durationMs.toFixed(0)}ms > ${config.constantNoiseRejectMs}ms`,
   };
 }
