@@ -553,50 +553,52 @@ export default function PlacementGuide({
         </View>
       )}
 
-      {/* VRS Complexity Meter - Shows analysis depth */}
-      <View style={styles.vrsComplexityContainer}>
-        <Text style={styles.vrsComplexityTitle}>Vagal Readiness Score Analysis</Text>
-        <Text style={styles.vrsComplexitySubtitle}>Multi-layered complexity meter</Text>
-        
-        <View style={styles.complexityMeter}>
-          {/* Baseline Component */}
-          <View style={styles.complexityBar}>
-            <View style={styles.complexityBarLabel}>
-              <Text style={styles.complexityLabel}>Baseline Motility</Text>
-              <Text style={styles.complexityValue}>40%</Text>
+      {/* VRS Complexity Meter - Only shows on step 3 (Silence Check) */}
+      {step === 3 && (
+        <View style={styles.vrsComplexityContainer}>
+          <Text style={styles.vrsComplexityTitle}>Vagal Readiness Score Analysis</Text>
+          <Text style={styles.vrsComplexitySubtitle}>Multi-layered complexity meter</Text>
+
+          <View style={styles.complexityMeter}>
+            {/* Baseline Component */}
+            <View style={styles.complexityBar}>
+              <View style={styles.complexityBarLabel}>
+                <Text style={styles.complexityLabel}>Baseline Motility</Text>
+                <Text style={styles.complexityValue}>40%</Text>
+              </View>
+              <View style={styles.complexityBarTrack}>
+                <View style={[styles.complexityBarFill, { width: '40%', backgroundColor: colors.accent }]} />
+              </View>
             </View>
-            <View style={styles.complexityBarTrack}>
-              <View style={[styles.complexityBarFill, { width: '40%', backgroundColor: colors.accent }]} />
+
+            {/* Rhythmicity Component */}
+            <View style={styles.complexityBar}>
+              <View style={styles.complexityBarLabel}>
+                <Text style={styles.complexityLabel}>Rhythmicity Index</Text>
+                <Text style={styles.complexityValue}>30%</Text>
+              </View>
+              <View style={styles.complexityBarTrack}>
+                <View style={[styles.complexityBarFill, { width: '30%', backgroundColor: colors.info }]} />
+              </View>
+            </View>
+
+            {/* Intervention Delta Component */}
+            <View style={styles.complexityBar}>
+              <View style={styles.complexityBarLabel}>
+                <Text style={styles.complexityLabel}>4-7-8 Intervention Delta</Text>
+                <Text style={styles.complexityValue}>30%</Text>
+              </View>
+              <View style={styles.complexityBarTrack}>
+                <View style={[styles.complexityBarFill, { width: '30%', backgroundColor: colors.success }]} />
+              </View>
             </View>
           </View>
 
-          {/* Rhythmicity Component */}
-          <View style={styles.complexityBar}>
-            <View style={styles.complexityBarLabel}>
-              <Text style={styles.complexityLabel}>Rhythmicity Index</Text>
-              <Text style={styles.complexityValue}>30%</Text>
-            </View>
-            <View style={styles.complexityBarTrack}>
-              <View style={[styles.complexityBarFill, { width: '30%', backgroundColor: colors.info }]} />
-            </View>
-          </View>
-
-          {/* Intervention Delta Component */}
-          <View style={styles.complexityBar}>
-            <View style={styles.complexityBarLabel}>
-              <Text style={styles.complexityLabel}>4-7-8 Intervention Delta</Text>
-              <Text style={styles.complexityValue}>30%</Text>
-            </View>
-            <View style={styles.complexityBarTrack}>
-              <View style={[styles.complexityBarFill, { width: '30%', backgroundColor: colors.success }]} />
-            </View>
-          </View>
+          <Text style={styles.complexityNote}>
+            The VRS combines three layers of analysis to quantify your gut-brain connection and autonomic nervous system health.
+          </Text>
         </View>
-
-        <Text style={styles.complexityNote}>
-          The VRS combines three layers of analysis to quantify your gut-brain connection and autonomic nervous system health.
-        </Text>
-      </View>
+      )}
 
       {/* Navigation buttons */}
       {/* Step 1 has its own button, Step 2 uses VideoTutorial's "I Understand" button */}

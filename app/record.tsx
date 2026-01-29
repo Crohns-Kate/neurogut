@@ -518,6 +518,7 @@ export default function GutSoundRecordingScreen() {
   const [decibelLevel, setDecibelLevel] = useState(0);
   const [ambientNoiseLevel, setAmbientNoiseLevel] = useState<number | null>(null);
   const [hummingDetected, setHummingDetected] = useState(false);
+  const [breathInterferenceDetected, setBreathInterferenceDetected] = useState(false);
 
   // Protocol and context state
   const [selectedProtocol, setSelectedProtocol] =
@@ -1643,7 +1644,7 @@ export default function GutSoundRecordingScreen() {
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
-      <Text style={styles.title}>Gut Sound Recording</Text>
+      <Text style={styles.title}>NeuroGut Acoustics</Text>
 
       {/* PlacementGuide Modal - Step-by-step wizard before recording */}
       {showPlacementGuide && (
@@ -1670,10 +1671,12 @@ export default function GutSoundRecordingScreen() {
               onClose={() => setShowPlacementGuide(false)}
               isCalibrated={sessionContext.calibrationCompleted}
             />
-            {(hummingDetected || (ambientNoiseLevel !== null && ambientNoiseLevel >= 0.05)) && (
+            {(hummingDetected || breathInterferenceDetected || (ambientNoiseLevel !== null && ambientNoiseLevel >= 0.05)) && (
               <View style={styles.noiseWarningContainer}>
                 <Text style={styles.noiseWarningText}>
-                  ⚠️ Too much noise. Please find a quiet space.
+                  {breathInterferenceDetected
+                    ? "⚠️ Breath interference detected. Try holding your breath briefly."
+                    : "⚠️ Too much noise. Please find a quiet space."}
                 </Text>
               </View>
             )}

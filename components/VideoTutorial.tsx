@@ -110,9 +110,9 @@ function AnimatedTutorial({ onComplete }: { onComplete?: () => void }) {
   }, [pulseAnim]);
 
   const steps = [
-    { title: "Find Belly Button", description: "Start at your belly button as a reference point" },
-    { title: "Move to LRQ", description: "Move 2-3 inches down and to YOUR right" },
+    { title: "LRQ Located", description: "You've found the Lower Right Quadrant - good job!" },
     { title: "Apply Pressure", description: "Press phone firmly against your skin" },
+    { title: "Hold Steady", description: "Maintain gentle, consistent pressure" },
     { title: "Ready!", description: "Hold still for accurate gut sound recording" },
   ];
 
@@ -352,15 +352,15 @@ export default function VideoTutorial({
       <View style={styles.keyPoints}>
         <View style={styles.keyPoint}>
           <Text style={styles.keyPointNumber}>1</Text>
-          <Text style={styles.keyPointText}>Start at your belly button</Text>
+          <Text style={styles.keyPointText}>Place phone flat on your LRQ</Text>
         </View>
         <View style={styles.keyPoint}>
           <Text style={styles.keyPointNumber}>2</Text>
-          <Text style={styles.keyPointText}>Move 2-3 inches down and to YOUR right</Text>
+          <Text style={styles.keyPointText}>Apply firm, steady pressure with your palm</Text>
         </View>
         <View style={styles.keyPoint}>
           <Text style={styles.keyPointNumber}>3</Text>
-          <Text style={styles.keyPointText}>Press phone firmly against skin</Text>
+          <Text style={styles.keyPointText}>Keep still during the entire recording</Text>
         </View>
       </View>
 
