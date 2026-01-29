@@ -308,7 +308,7 @@ interface DetectedEvent {
  * Apply Butterworth bandpass filter for clinical-grade gut sound isolation
  *
  * Mansour et al. PLOS One Jan 2026:
- * - Third-order Butterworth bandpass (100Hz-1500Hz)
+ * - Third-order Butterworth bandpass (100Hz-450Hz)
  * - 60 dB/octave rolloff for sharp isolation
  * - Zero-phase filtering for no phase distortion
  *
