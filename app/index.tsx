@@ -22,7 +22,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import { colors, typography, spacing, radius, safeArea } from "../styles/theme";
 import PrimaryButton from "../components/PrimaryButton";
-import PlacementGuide from "../components/PlacementGuide";
 import {
   GutRecordingSession,
   PROTOCOL_CONFIG,
@@ -74,18 +73,6 @@ export default function GuidedCheckInScreen() {
   const [preSessionState, setPreSessionState] = useState<PreSessionState>(null);
   const [preSessionContext, setPreSessionContext] = useState<PreSessionContext>(null);
 
-  // PlacementGuide Modal state (Direct wizard linkage)
-  const [showPlacementGuide, setShowPlacementGuide] = useState(false);
-  const [placementStep, setPlacementStep] = useState(1);
-  const [step1Completed, setStep1Completed] = useState(false);
-  const [step2Completed, setStep2Completed] = useState(false);
-  const [step3Completed, setStep3Completed] = useState(false);
-  const [isCheckingSignal, setIsCheckingSignal] = useState(false);
-  const [signalProgress, setSignalProgress] = useState(0);
-  const [signalPassed, setSignalPassed] = useState<boolean | null>(null);
-  const [decibelLevel, setDecibelLevel] = useState(0);
-  const [ambientNoiseLevel, setAmbientNoiseLevel] = useState<number | null>(null);
-  const [hummingDetected, setHummingDetected] = useState(false);
 
   // Greeting based on time of day
   const getGreeting = () => {
@@ -182,7 +169,7 @@ export default function GuidedCheckInScreen() {
     return date.toLocaleDateString([], { month: "short", day: "numeric" });
   };
 
-  // Handle starting a recording session - DIRECT WIZARD LINKAGE
+  // Handle starting a recording session - navigate to record screen
   const handleStartSession = () => {
     if (!activePatientId) {
       Alert.alert(
@@ -192,79 +179,10 @@ export default function GuidedCheckInScreen() {
       );
       return;
     }
-    // Show PlacementGuide wizard directly
-    setShowPlacementGuide(true);
-    setPlacementStep(1);
-    setStep1Completed(false);
-    setStep2Completed(false);
-    setStep3Completed(false);
+    // Navigate directly to record screen which handles the full flow
+    router.push("/record");
   };
 
-  // PlacementGuide handlers
-  const handlePlacementStepComplete = () => {
-    if (placementStep === 1) {
-      setStep1Completed(true);
-      setPlacementStep(2);
-    } else if (placementStep === 2) {
-      Alert.alert(
-        "Confirm Pressure",
-        "Have you watched the 'How to Hold' video and are now pressing the phone firmly against your LRQ?",
-        [
-          { text: "Not Yet", style: "cancel" },
-          {
-            text: "Yes, Pressing Firmly",
-            onPress: () => {
-              setStep2Completed(true);
-              setPlacementStep(3);
-            },
-          },
-        ]
-      );
-    } else if (placementStep === 3) {
-      if (signalPassed) {
-        setStep3Completed(true);
-        setShowPlacementGuide(false);
-        // Navigate to record screen after wizard completes
-        router.push("/record");
-      }
-    }
-  };
-
-  const handleStartSignalCheck = async () => {
-    setIsCheckingSignal(true);
-    setSignalProgress(0);
-    setSignalPassed(null);
-    setHummingDetected(false);
-    setAmbientNoiseLevel(null);
-
-    // Simulate 5-second noise check - always passes for development
-    // In production, this would use real microphone RMS analysis
-    let progress = 0;
-
-    const checkInterval = setInterval(() => {
-      progress += 10;
-      setSignalProgress(progress);
-
-      // Show simulated low noise values for UI feedback
-      const simulatedNoise = Math.random() * 0.03;
-      setAmbientNoiseLevel(simulatedNoise);
-
-      if (progress >= 100) {
-        clearInterval(checkInterval);
-        setIsCheckingSignal(false);
-        // Always pass in development mode
-        setSignalPassed(true);
-        setStep3Completed(true);
-      }
-    }, 500);
-  };
-
-  const handleRetrySignalCheck = () => {
-    setSignalPassed(null);
-    setHummingDetected(false);
-    setAmbientNoiseLevel(null);
-    handleStartSignalCheck();
-  };
 
   const handleConfirmPreSession = () => {
     if (!preSessionState || !preSessionContext) {
@@ -302,41 +220,7 @@ export default function GuidedCheckInScreen() {
   const activePatientName = patients.find((p) => p.id === activePatientId)?.code || "Select Patient";
 
   return (
-    <>
-      {/* PlacementGuide Modal - Direct wizard linkage from home screen */}
-      <Modal
-        visible={showPlacementGuide}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => {
-          if (placementStep === 1 && !step1Completed) {
-            setShowPlacementGuide(false);
-          }
-        }}
-      >
-        <View style={styles.placementGuideContainer}>
-          <PlacementGuide
-            step={placementStep}
-            onPlacementConfirmed={handlePlacementStepComplete}
-            isCheckingSignal={isCheckingSignal}
-            signalProgress={signalProgress}
-            signalPassed={signalPassed}
-            decibelLevel={decibelLevel}
-            onStartSignalCheck={handleStartSignalCheck}
-            onRetrySignalCheck={handleRetrySignalCheck}
-            onClose={() => setShowPlacementGuide(false)}
-          />
-          {(hummingDetected || (ambientNoiseLevel !== null && ambientNoiseLevel >= 0.05)) && (
-            <View style={styles.noiseWarningContainer}>
-              <Text style={styles.noiseWarningText}>
-                ⚠️ Too much noise. Please find a quiet space.
-              </Text>
-            </View>
-          )}
-        </View>
-      </Modal>
-
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header Section */}
       <View style={styles.header}>
         <View style={styles.brandContainer}>
@@ -418,14 +302,7 @@ export default function GuidedCheckInScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.quickActionButton}
-            onPress={() => {
-              // Protocol button also launches PlacementGuide wizard
-              setShowPlacementGuide(true);
-              setPlacementStep(1);
-              setStep1Completed(false);
-              setStep2Completed(false);
-              setStep3Completed(false);
-            }}
+            onPress={() => router.push("/protocol")}
           >
             <Text style={styles.quickActionIcon}>📖</Text>
             <Text style={styles.quickActionLabel}>Protocol</Text>
@@ -653,8 +530,7 @@ export default function GuidedCheckInScreen() {
           </View>
         </View>
       </Modal>
-      </ScrollView>
-    </>
+    </ScrollView>
   );
 }
 
@@ -1116,26 +992,5 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.base,
     fontWeight: typography.weights.semibold,
     color: colors.background,
-  },
-  placementGuideContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  noiseWarningContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.warning + "20",
-    borderTopWidth: 2,
-    borderTopColor: colors.warning,
-    padding: spacing.lg,
-    alignItems: "center",
-  },
-  noiseWarningText: {
-    color: colors.warning,
-    fontSize: typography.sizes.base,
-    fontWeight: typography.weights.semibold,
-    textAlign: "center",
   },
 });
