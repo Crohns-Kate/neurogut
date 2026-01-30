@@ -2952,6 +2952,20 @@ function detectNoSkinContact(energyValues: number[]): boolean {
 /**
  * Analysis options for controlling filter behavior
  */
+/**
+ * Accelerometer contact detection result (from accelerometerContact.ts)
+ */
+export interface AccelerometerContactResult {
+  /** Is the phone likely NOT in contact with body? */
+  noContact: boolean;
+  /** Is the phone lying flat? */
+  isFlat: boolean;
+  /** Is the phone still? */
+  isStill: boolean;
+  /** Confidence in detection (0-1) */
+  confidence: number;
+}
+
 export interface AnalysisOptions {
   /**
    * Whether to apply the spectral bandpass filter (150-1000 Hz)
@@ -2967,6 +2981,13 @@ export interface AnalysisOptions {
    * Default: false
    */
   isHummingPhase?: boolean;
+
+  /**
+   * Accelerometer contact detection result
+   * If provided and noContact is true, immediately returns 0 events
+   * PRIMARY GATE: Takes precedence over all audio analysis
+   */
+  accelerometerResult?: AccelerometerContactResult;
 }
 
 /**
@@ -2990,7 +3011,30 @@ export function analyzeAudioSamples(
   sampleRate: number = CONFIG.sampleRate,
   options: AnalysisOptions = {}
 ): SessionAnalytics {
-  const { applyBirdFilter = true, isHummingPhase = false } = options;
+  const { applyBirdFilter = true, isHummingPhase = false, accelerometerResult } = options;
+
+  // ════════════════════════════════════════════════════════════════════════════════
+  // ACCELEROMETER CONTACT GATE (PRIMARY - takes precedence over all audio analysis)
+  // If phone is flat + still (table), return 0 events immediately
+  // This prevents false positives from ambient noise on table recordings
+  // ════════════════════════════════════════════════════════════════════════════════
+  if (accelerometerResult?.noContact) {
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║     ACCELEROMETER GATE: PHONE ON TABLE - REJECTING ALL          ║');
+    console.log('╚══════════════════════════════════════════════════════════════════╝');
+    console.log(`isFlat: ${accelerometerResult.isFlat}, isStill: ${accelerometerResult.isStill}`);
+    console.log(`Confidence: ${(accelerometerResult.confidence * 100).toFixed(1)}%`);
+    console.log('>>> Returning 0 events - phone not in contact with body');
+    console.log('=====================================\n');
+    return {
+      eventsPerMinute: 0,
+      totalActiveSeconds: 0,
+      totalQuietSeconds: Math.round(durationSeconds),
+      motilityIndex: 0,
+      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+      timelineSegments: CONFIG.timelineSegments,
+    };
+  }
 
   // NG-HARDEN-05 + Ralph Loop: Use cached ANF calibration to avoid duplicate calls
   const anfCalibrationResult = getCachedANFCalibration(samples, sampleRate);

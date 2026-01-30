@@ -52,6 +52,12 @@ import {
   checkInputDevice,
   verifyStethoscopeInput,
 } from "../src/logic/audioProcessor";
+import {
+  startAccelerometerMonitoring,
+  stopAccelerometerMonitoring,
+  analyzeAccelerometerContact,
+  ContactDetectionResult,
+} from "../src/sensors/accelerometerContact";
 
 type SavedRecording = {
   id: string;
@@ -1181,7 +1187,12 @@ export default function GutSoundRecordingScreen() {
       setInterventionTimeRemaining(300); // Reset timer
       setBaselineMotility(null); // Reset biofeedback
       setInterventionMotility(null);
-      
+
+      // Start accelerometer monitoring for contact detection
+      // This runs during the entire recording to detect if phone is on table
+      await startAccelerometerMonitoring();
+      console.log("[Record] Accelerometer monitoring started for contact detection");
+
       // Stop any audio that might be playing
       await stopDroneAudio();
       Speech.stop();
@@ -1278,6 +1289,11 @@ export default function GutSoundRecordingScreen() {
 
       setPhase("processing");
 
+      // Stop accelerometer and analyze contact
+      stopAccelerometerMonitoring();
+      const contactResult = analyzeAccelerometerContact();
+      console.log("[Record] Accelerometer contact result:", contactResult.noContact ? "NO CONTACT (table)" : "CONTACT OK");
+
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       const finalDuration = recordingDuration;
@@ -1332,9 +1348,23 @@ export default function GutSoundRecordingScreen() {
         await addSession(session);
 
         // Generate analytics for the session
-        // TODO: In the future, implement proper audio sample extraction
-        // For now, we use placeholder analytics that simulate realistic values
-        const analytics = generatePlaceholderAnalytics(durationSeconds);
+        // ACCELEROMETER GATE: If phone was on table (flat + still), return zero events
+        let analytics;
+        if (contactResult.noContact) {
+          console.log("[Record] ACCELEROMETER GATE: Phone on table - returning 0 events");
+          analytics = {
+            eventsPerMinute: 0,
+            totalActiveSeconds: 0,
+            totalQuietSeconds: durationSeconds,
+            motilityIndex: 0,
+            activityTimeline: new Array(10).fill(0),
+            timelineSegments: 10,
+          };
+        } else {
+          // TODO: In the future, implement proper audio sample extraction
+          // For now, we use placeholder analytics that simulate realistic values
+          analytics = generatePlaceholderAnalytics(durationSeconds);
+        }
         await updateSessionAnalytics(session.id, analytics);
 
         // Also update local list for display
