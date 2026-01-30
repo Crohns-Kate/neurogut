@@ -30,9 +30,9 @@ export const ACCELEROMETER_CONFIG = {
   minSamplesForDetection: 40, // 2 seconds at 20Hz
 
   // FLAT DETECTION
-  // Phone flat on table: Z magnitude close to gravity (9.8 m/s²)
-  // Threshold: if |avgZ| > 9.5, phone is nearly horizontal
-  flatZThreshold: 9.5,
+  // Phone flat on table: Z magnitude close to 1G (Expo returns G-force, not m/s²)
+  // Threshold: if |avgZ| > 0.95, phone is nearly horizontal
+  flatZThreshold: 0.95,
 
   // STILLNESS DETECTION
   // Phone on table has very low variance (no micro-movements)
@@ -42,7 +42,7 @@ export const ACCELEROMETER_CONFIG = {
 
   // Additional: X and Y should be near zero if truly flat
   // (tilted phones have significant X/Y components)
-  flatXYThreshold: 1.5, // m/s² - allow some tilt tolerance
+  flatXYThreshold: 0.15, // G-force - allow some tilt tolerance
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
