@@ -259,22 +259,36 @@ const CONFIG = {
   // CRITICAL FIX: Temporal variability requirements
   // Body sounds have BURSTS (high CV), ambient noise is CONSTANT (low CV)
   // Coefficient of variation (CV = stdDev/mean) threshold for valid body contact
-  // Gut sounds: CV > 0.15 (bursts cause high variability)
-  // Ambient noise: CV < 0.08 (constant hum)
-  minCVForBodyContact: 0.12,
+  // TIGHTENED: Gut sounds have CV > 0.25 (sharp bursts)
+  // Ambient noise: CV < 0.15 (even "noisy" rooms are relatively constant)
+  minCVForBodyContact: 0.25,  // was 0.12 - SIGNIFICANTLY TIGHTENED
 
-  // Minimum number of amplitude peaks (>2x baseline) expected in body recordings
+  // Minimum number of amplitude peaks (>Nx baseline) expected in body recordings
   // Gut sounds: multiple distinct burst events per recording
   // Ambient noise: flat with no distinct peaks
   minBurstPeaksForBodyContact: 2,
 
   // Peak detection threshold multiplier (peak must exceed baseline * this value)
-  burstPeakThresholdMultiplier: 2.0,
+  // TIGHTENED: Gut sounds are SHARP spikes, not gradual variations
+  burstPeakThresholdMultiplier: 3.0,  // was 2.0 - TIGHTENED
 
   // Minimum energy variance ratio (max/min energy in windows)
   // Body sounds: high ratio (bursts vs silence)
   // Ambient noise: low ratio (constant level)
-  minEnergyVarianceRatio: 3.0,
+  // TIGHTENED: Require more dynamic range
+  minEnergyVarianceRatio: 5.0,  // was 3.0 - TIGHTENED
+
+  // MINIMUM RMS THRESHOLD FOR BODY CONTACT
+  // Gut sounds via body contact have higher amplitude than ambient table pickup
+  // If RMS is below this, phone is likely not in contact with body
+  minRMSForBodyContact: 0.015,
+
+  // SILENCE GAP REQUIREMENT
+  // Real gut sounds have SILENCE between bursts
+  // Ambient noise is continuous with no true silence
+  // Minimum ratio of near-silent frames (RMS < 0.005) to total frames
+  minSilenceRatio: 0.20,  // at least 20% near-silence
+  silenceThresholdRMS: 0.005,  // RMS below this = "silent"
 
   // ══════════════════════════════════════════════════════════════════════════════════
   // EXPANDED BREATH ARTIFACT DETECTION (NG-HARDEN-08)
@@ -1869,25 +1883,42 @@ function analyzeContactQuality(
   let hasTemporalVariability = false;
   let hasBurstPeaks = false;
   let hasEnergyVariance = false;
+  let hasSilenceGaps = false;
+  let passesMinRMS = false;
 
   // Diagnostic values for logging
   let cv = 0;
   let peakCount = 0;
   let varianceRatio = 0;
+  let avgEnergy = 0;
+  let silenceRatio = 0;
+  let silentFrameCount = 0;
 
   if (energyWindows.length >= 5) {
-    const avgEnergy = energyWindows.reduce((s, e) => s + e, 0) / energyWindows.length;
+    avgEnergy = energyWindows.reduce((s, e) => s + e, 0) / energyWindows.length;
     const energyStdDev = Math.sqrt(
       energyWindows.reduce((s, e) => s + (e - avgEnergy) ** 2, 0) / energyWindows.length
     );
 
-    // Check 1: Coefficient of variation (CV)
-    // Body sounds: CV > 0.12 (bursts cause variability)
-    // Ambient noise: CV < 0.08 (constant level)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // CHECK 0: MINIMUM RMS THRESHOLD (HARD GATE)
+    // Gut sounds via body contact have higher amplitude than ambient table pickup
+    // If RMS is below threshold, phone is NOT in contact with body
+    // ═══════════════════════════════════════════════════════════════════════════════
+    passesMinRMS = avgEnergy >= CONFIG.minRMSForBodyContact;
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // CHECK 1: Coefficient of variation (CV) - TIGHTENED
+    // Body sounds: CV > 0.25 (sharp bursts cause HIGH variability)
+    // Ambient noise: CV < 0.20 (even "noisy" rooms are relatively constant)
+    // ═══════════════════════════════════════════════════════════════════════════════
     cv = avgEnergy > 0 ? energyStdDev / avgEnergy : 0;
     hasTemporalVariability = cv >= CONFIG.minCVForBodyContact;
 
-    // Check 2: Count burst peaks (energy > 2x baseline)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // CHECK 2: Burst peaks - TIGHTENED (energy > 3x baseline, not 2x)
+    // Gut sounds are SHARP spikes, not gradual ambient variations
+    // ═══════════════════════════════════════════════════════════════════════════════
     const peakThreshold = avgEnergy * CONFIG.burstPeakThresholdMultiplier;
     for (const energy of energyWindows) {
       if (energy > peakThreshold) {
@@ -1896,22 +1927,34 @@ function analyzeContactQuality(
     }
     hasBurstPeaks = peakCount >= CONFIG.minBurstPeaksForBodyContact;
 
-    // Check 3: Energy variance ratio (max/min)
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // CHECK 3: Energy variance ratio (max/min) - TIGHTENED
+    // ═══════════════════════════════════════════════════════════════════════════════
     const minEnergy = Math.max(0.0001, Math.min(...energyWindows));
     const maxEnergy = Math.max(...energyWindows);
     varianceRatio = maxEnergy / minEnergy;
     hasEnergyVariance = varianceRatio >= CONFIG.minEnergyVarianceRatio;
 
     // ═══════════════════════════════════════════════════════════════════════════════
+    // CHECK 4: SILENCE GAP REQUIREMENT (NEW)
+    // Real gut sounds have SILENCE between bursts
+    // Ambient noise is continuous with no true silence
+    // Must have at least 20% of frames near-silent
+    // ═══════════════════════════════════════════════════════════════════════════════
+    silentFrameCount = energyWindows.filter(e => e < CONFIG.silenceThresholdRMS).length;
+    silenceRatio = silentFrameCount / energyWindows.length;
+    hasSilenceGaps = silenceRatio >= CONFIG.minSilenceRatio;
+
+    // ═══════════════════════════════════════════════════════════════════════════════
     // DIAGNOSTIC LOGGING - TEMPORAL CHECK
     // ═══════════════════════════════════════════════════════════════════════════════
     console.log('=== TEMPORAL CHECK (analyzeContactQuality) ===');
     console.log(`Energy windows: ${energyWindows.length}`);
-    console.log(`Avg energy: ${avgEnergy.toFixed(6)}, StdDev: ${energyStdDev.toFixed(6)}`);
-    console.log(`CV (coefficient of variation): ${cv.toFixed(4)} (need ≥${CONFIG.minCVForBodyContact} for body)`);
-    console.log(`Burst peaks (>${CONFIG.burstPeakThresholdMultiplier}x avg): ${peakCount} (need ≥${CONFIG.minBurstPeaksForBodyContact} for body)`);
-    console.log(`Energy variance ratio (max/min): ${varianceRatio.toFixed(2)} (need ≥${CONFIG.minEnergyVarianceRatio} for body)`);
-    console.log(`Temporal criteria: CV=${hasTemporalVariability ? '✓' : '✗'}, Peaks=${hasBurstPeaks ? '✓' : '✗'}, Variance=${hasEnergyVariance ? '✓' : '✗'}`);
+    console.log(`Avg RMS: ${avgEnergy.toFixed(6)} (need ≥${CONFIG.minRMSForBodyContact} for body): ${passesMinRMS ? '✓' : '✗ HARD REJECT'}`);
+    console.log(`CV (coefficient of variation): ${cv.toFixed(4)} (need ≥${CONFIG.minCVForBodyContact} for body): ${hasTemporalVariability ? '✓' : '✗'}`);
+    console.log(`Burst peaks (>${CONFIG.burstPeakThresholdMultiplier}x avg): ${peakCount} (need ≥${CONFIG.minBurstPeaksForBodyContact} for body): ${hasBurstPeaks ? '✓' : '✗'}`);
+    console.log(`Energy variance ratio (max/min): ${varianceRatio.toFixed(2)} (need ≥${CONFIG.minEnergyVarianceRatio} for body): ${hasEnergyVariance ? '✓' : '✗'}`);
+    console.log(`Silence gaps: ${silentFrameCount}/${energyWindows.length} = ${(silenceRatio * 100).toFixed(1)}% (need ≥${CONFIG.minSilenceRatio * 100}%): ${hasSilenceGaps ? '✓' : '✗'}`);
   } else {
     console.log('=== TEMPORAL CHECK (analyzeContactQuality) ===');
     console.log(`SKIPPED: Only ${energyWindows.length} energy windows (need ≥5)`);
@@ -1936,45 +1979,55 @@ function analyzeContactQuality(
   if (isHighFreqSuppressed) spectralCriteriaMet++;
   if (isLowRolloff) spectralCriteriaMet++;
 
-  // Count temporal criteria met
+  // Count temporal criteria met (now includes silence gaps)
   let temporalCriteriaMet = 0;
   if (hasTemporalVariability) temporalCriteriaMet++;
   if (hasBurstPeaks) temporalCriteriaMet++;
   if (hasEnergyVariance) temporalCriteriaMet++;
+  if (hasSilenceGaps) temporalCriteriaMet++;
 
-  // CRITICAL: Must pass BOTH spectral AND temporal checks
-  // - Spectral: at least 2/3 criteria
-  // - Temporal: at least 1/3 criteria (MUST have some variability)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // STRICT TEMPORAL GATING (CRITICAL FIX)
+  //
+  // OLD LOGIC (TOO PERMISSIVE):
+  //   passesTemporalCheck = temporalCriteriaMet >= 1 (only needed 1/3)
+  //
+  // NEW LOGIC (STRICT):
+  //   1. MUST pass minimum RMS check (hard gate - no body contact if too quiet)
+  //   2. MUST pass at least 2/4 temporal criteria
+  //   3. Spectral check alone is NOT sufficient
+  // ═══════════════════════════════════════════════════════════════════════════════
   const passesSpectralCheck = spectralCriteriaMet >= 2;
-  const passesTemporalCheck = temporalCriteriaMet >= 1;
+  const passesTemporalCheck = passesMinRMS && temporalCriteriaMet >= 2;  // TIGHTENED: 2/4 not 1/3
 
   const isOnBody = passesSpectralCheck && passesTemporalCheck;
 
   // Confidence is average of both checks
   const spectralConfidence = spectralCriteriaMet / 3;
-  const temporalConfidence = temporalCriteriaMet / 3;
+  const temporalConfidence = temporalCriteriaMet / 4;  // Now 4 criteria
   const contactConfidence = (spectralConfidence + temporalConfidence) / 2;
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // NUCLEAR OPTION: EXPLICIT AMBIENT NOISE SIGNATURE DETECTION
-  // Ambient noise (table/room) has specific signature:
-  // - CV often in 0.10-0.20 range (some variability but not burst-like)
-  // - Low burst peak count (0-2 random spikes, not sustained gut activity)
-  // - Low-freq dominated (HVAC, room resonance)
-  // - Low energy variance ratio (no distinct events)
+  // AMBIENT NOISE SIGNATURE DETECTION
+  // Ambient noise (table/room) has specific signature - even with tightened
+  // thresholds, explicitly detect and reject this pattern
   // ═══════════════════════════════════════════════════════════════════════════════
   const isAmbientNoiseSignature = (
-    cv < 0.15 &&           // Tighter CV threshold (was 0.12)
-    peakCount <= 2 &&      // Few or no burst peaks
-    varianceRatio < 4.0 && // Low dynamic range
-    isLowFreqDominant      // Low-freq dominated (HVAC, hum)
+    cv < 0.20 &&              // Low CV (constant signal)
+    peakCount <= 1 &&         // Almost no burst peaks
+    silenceRatio < 0.10 &&    // No silence gaps (continuous noise)
+    isLowFreqDominant         // Low-freq dominated (HVAC, hum)
   );
 
-  // CRITICAL FIX: Reject if temporal check fails (signal is FLAT = table/ambient)
-  // This catches the case where spectral shape looks like body (low-freq dominant)
-  // but signal has no burst variability (constant ambient noise)
-  // Also reject if ambient noise signature is detected
-  const shouldRejectAsInAir = !passesTemporalCheck || spectralCriteriaMet === 0 || isAmbientNoiseSignature;
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // FINAL REJECTION DECISION
+  // Reject if ANY of:
+  //   1. Min RMS not met (too quiet for body contact)
+  //   2. Temporal check fails (< 2/4 criteria)
+  //   3. No spectral criteria met
+  //   4. Ambient noise signature detected
+  // ═══════════════════════════════════════════════════════════════════════════════
+  const shouldRejectAsInAir = !passesMinRMS || !passesTemporalCheck || spectralCriteriaMet === 0 || isAmbientNoiseSignature;
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // DIAGNOSTIC LOGGING - FINAL DECISION
@@ -1985,16 +2038,25 @@ function analyzeContactQuality(
   console.log(`Spectral rolloff: ${spectralRolloff.toFixed(0)}Hz (need ≤${CONFIG.maxSpectralRolloffOnBody}): ${isLowRolloff ? '✓' : '✗'}`);
   console.log(`Spectral criteria: ${spectralCriteriaMet}/3`);
   console.log('--- AMBIENT NOISE SIGNATURE CHECK ---');
-  console.log(`CV < 0.15: ${cv < 0.15 ? '✓ (flat)' : '✗ (variable)'}`);
-  console.log(`Peaks ≤ 2: ${peakCount <= 2 ? '✓ (few peaks)' : '✗ (many peaks)'}`);
-  console.log(`Variance < 4.0: ${varianceRatio < 4.0 ? '✓ (low range)' : '✗ (high range)'}`);
+  console.log(`CV < 0.20: ${cv < 0.20 ? '✓ (constant)' : '✗ (variable)'}`);
+  console.log(`Peaks ≤ 1: ${peakCount <= 1 ? '✓ (no bursts)' : '✗ (has bursts)'}`);
+  console.log(`Silence < 10%: ${silenceRatio < 0.10 ? '✓ (continuous)' : '✗ (has gaps)'}`);
   console.log(`Low-freq dominant: ${isLowFreqDominant ? '✓' : '✗'}`);
   console.log(`isAmbientNoiseSignature: ${isAmbientNoiseSignature}`);
   console.log('--- FINAL DECISION ---');
+  console.log(`Passes minRMS (≥${CONFIG.minRMSForBodyContact}): ${passesMinRMS ? '✓' : '✗ HARD REJECT'}`);
   console.log(`Passes spectral (≥2/3): ${passesSpectralCheck ? '✓' : '✗'}`);
-  console.log(`Passes temporal (≥1/3): ${passesTemporalCheck ? '✓' : '✗'}`);
+  console.log(`Passes temporal (≥2/4): ${passesTemporalCheck ? '✓' : '✗'} (score: ${temporalCriteriaMet}/4)`);
   console.log(`isOnBody: ${isOnBody}`);
   console.log(`shouldRejectAsInAir: ${shouldRejectAsInAir}`);
+  if (shouldRejectAsInAir) {
+    const reasons = [];
+    if (!passesMinRMS) reasons.push('RMS too low');
+    if (temporalCriteriaMet < 2) reasons.push(`temporal ${temporalCriteriaMet}/4 < 2`);
+    if (spectralCriteriaMet === 0) reasons.push('no spectral criteria');
+    if (isAmbientNoiseSignature) reasons.push('ambient noise signature');
+    console.log(`REJECTION REASON(S): ${reasons.join(', ')}`);
+  }
   console.log('=====================================');
 
   return {
@@ -2822,15 +2884,15 @@ function detectNoSkinContact(energyValues: number[]): boolean {
   console.log(`CHECK 1: Avg energy ${avgEnergy.toFixed(6)} ≥ ${MIN_SKIN_CONTACT_RMS} threshold ✓`);
 
   // CHECK 2: Coefficient of variation (CV) = stdDev / mean
-  // TIGHTENED: CV threshold from 0.12 to 0.15 to catch more ambient noise
-  // Flat noise has very low CV (< 0.15) - consistent background hum
-  // Gut sounds should have more variance (CV > 0.15)
+  // SIGNIFICANTLY TIGHTENED: CV threshold to 0.25
+  // Flat noise has low CV (< 0.25) - consistent background hum
+  // Gut sounds have HIGH variance (CV > 0.25) from sharp bursts
   const cv = avgEnergy > 0 ? energyStdDev / avgEnergy : 0;
-  console.log(`CHECK 2: CV = ${cv.toFixed(4)} (flat if < 0.15)`);
+  console.log(`CHECK 2: CV = ${cv.toFixed(4)} (flat if < 0.25)`);
 
-  // CHECK 3: Count distinct peaks (energy > 2x average)
-  // Body sounds have burst peaks; ambient noise is flat
-  const peakThreshold = avgEnergy * 2.0;
+  // CHECK 3: Count distinct peaks (energy > 3x average) - TIGHTENED from 2x
+  // Body sounds are SHARP spikes; ambient noise has gradual variations
+  const peakThreshold = avgEnergy * 3.0;  // was 2.0
   let peakCount = 0;
   for (const energy of energyValues) {
     if (energy > peakThreshold) {
@@ -2838,28 +2900,49 @@ function detectNoSkinContact(energyValues: number[]): boolean {
     }
   }
   const hasNoPeaks = peakCount < 2;
-  console.log(`CHECK 3: Burst peaks (>2x avg): ${peakCount} (need ≥2, hasNoPeaks=${hasNoPeaks})`);
+  console.log(`CHECK 3: Burst peaks (>3x avg): ${peakCount} (need ≥2, hasNoPeaks=${hasNoPeaks})`);
 
-  // CHECK 4: Energy range ratio (max/min)
-  // Body sounds have high dynamic range; ambient noise is compressed
+  // CHECK 4: Energy range ratio (max/min) - TIGHTENED from 3.0 to 5.0
+  // Body sounds have HIGH dynamic range; ambient noise is compressed
   const minEnergy = Math.max(0.0001, Math.min(...energyValues));
   const maxEnergy = Math.max(...energyValues);
   const dynamicRange = maxEnergy / minEnergy;
-  const hasLowDynamicRange = dynamicRange < 3.0;
-  console.log(`CHECK 4: Dynamic range (max/min): ${dynamicRange.toFixed(2)} (low if < 3.0, hasLowDynamicRange=${hasLowDynamicRange})`);
+  const hasLowDynamicRange = dynamicRange < 5.0;  // was 3.0
+  console.log(`CHECK 4: Dynamic range (max/min): ${dynamicRange.toFixed(2)} (low if < 5.0, hasLowDynamicRange=${hasLowDynamicRange})`);
 
-  // REJECT if:
-  // - CV is too low (flat signal) OR
-  // - No burst peaks AND low dynamic range (constant noise)
-  // This catches table recordings with ambient hum that might have
-  // spectral characteristics similar to on-body recordings
-  // TIGHTENED: CV threshold from 0.12 to 0.15 to catch more ambient noise
-  const isFlatSignal = cv < 0.15;
+  // CHECK 5: Silence gaps - body recordings have quiet periods between bursts
+  const silentFrames = energyValues.filter(e => e < CONFIG.silenceThresholdRMS).length;
+  const silenceRatio = silentFrames / energyValues.length;
+  const hasNoSilence = silenceRatio < CONFIG.minSilenceRatio;
+  console.log(`CHECK 5: Silence ratio: ${(silenceRatio * 100).toFixed(1)}% (need ≥${CONFIG.minSilenceRatio * 100}%, hasNoSilence=${hasNoSilence})`);
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // REJECTION LOGIC - SIGNIFICANTLY TIGHTENED
+  // Reject if ANY of:
+  // - CV is too low (< 0.25 = flat signal)
+  // - No burst peaks (< 2 peaks > 3x average)
+  // - Low dynamic range (< 5x)
+  // - No silence gaps (< 20% quiet frames)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  const isFlatSignal = cv < 0.25;  // TIGHTENED from 0.15
   const isConstantNoise = hasNoPeaks && hasLowDynamicRange;
+  const isContinuousNoise = hasNoSilence && hasNoPeaks;  // No silence + no peaks = ambient
 
-  const shouldReject = isFlatSignal || isConstantNoise;
-  console.log(`isFlatSignal (CV < 0.12): ${isFlatSignal}`);
-  console.log(`isConstantNoise (noPeaks && lowRange): ${isConstantNoise}`);
+  // Count rejection criteria
+  let rejectionScore = 0;
+  if (isFlatSignal) rejectionScore++;
+  if (hasNoPeaks) rejectionScore++;
+  if (hasLowDynamicRange) rejectionScore++;
+  if (hasNoSilence) rejectionScore++;
+
+  // Reject if 2+ criteria indicate ambient noise
+  const shouldReject = rejectionScore >= 2;
+
+  console.log(`isFlatSignal (CV < 0.25): ${isFlatSignal}`);
+  console.log(`hasNoPeaks (< 2 peaks > 3x): ${hasNoPeaks}`);
+  console.log(`hasLowDynamicRange (< 5x): ${hasLowDynamicRange}`);
+  console.log(`hasNoSilence (< 20% quiet): ${hasNoSilence}`);
+  console.log(`Rejection score: ${rejectionScore}/4 (reject if ≥ 2)`);
   console.log(`RESULT: ${shouldReject ? 'REJECTED (no skin contact)' : 'ACCEPTED (appears to be on body)'}`);
   console.log('=====================================');
 
