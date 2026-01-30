@@ -32,8 +32,9 @@ export const FLAT_NOISE_CV_THRESHOLD = 0.08;
  * due to the muffled acoustic coupling.
  * Values below this indicate phone is not properly placed on skin.
  * Normalized to 0-1 range where typical skin-contact RMS is 0.01-0.1
+ * TIGHTENED: Increased from 0.005 to 0.008 for stricter contact validation
  */
-export const MIN_SKIN_CONTACT_RMS = 0.005;
+export const MIN_SKIN_CONTACT_RMS = 0.008;
 
 // ══════════════════════════════════════════════════════════════════════════════════
 // NG-HARDEN-05: ACOUSTIC ENVIRONMENT ISOLATION CONFIG
