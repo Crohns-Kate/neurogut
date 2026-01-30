@@ -109,9 +109,11 @@ const CONFIG = {
   // White noise (air hiss) has SFM ≈ 1.0 (flat spectrum)
   // Gut sounds have SFM ≈ 0.1-0.4 (peaked spectrum)
   // Threshold below which signal is considered "peaked" (not white noise)
-  sfmWhiteNoiseThreshold: 0.65,
+  // TIGHTENED: Reduced from 0.65 to 0.55 for stricter noise rejection
+  sfmWhiteNoiseThreshold: 0.55,
   // SFM above this = definitely white noise (air hiss) - auto-reject
-  sfmAutoRejectThreshold: 0.85,
+  // TIGHTENED: Reduced from 0.85 to 0.75 for stricter noise rejection
+  sfmAutoRejectThreshold: 0.75,
 
   // BOWEL PEAK ISOLATION (100-450 Hz) — Aligned with NG-HARDEN-05 bandpass
   // Primary gut sounds: borborygmi, peristalsis, gurgling
@@ -121,16 +123,19 @@ const CONFIG = {
   // Minimum ratio of bowel band energy to total energy
   // Gut sounds: > 0.4 (40%+ energy in bowel band)
   // Air hiss: < 0.3 (energy spread across all frequencies)
-  bowelPeakMinRatio: 0.35,
+  // TIGHTENED: Increased from 0.35 to 0.40 for stricter validation
+  bowelPeakMinRatio: 0.40,
 
   // ZERO-CROSSING RATE (ZCR)
   // ZCR = number of times signal crosses zero per sample
   // Gut sounds: irregular ZCR (0.05-0.20) due to complex waveform
   // Breath/air: smooth ZCR (0.30-0.50) due to noise-like waveform
   // High ZCR indicates noise-like signal
-  zcrMaxForGutSound: 0.25,
+  // TIGHTENED: Reduced from 0.25 to 0.22 for stricter noise rejection
+  zcrMaxForGutSound: 0.22,
   // Very high ZCR is definitely noise
-  zcrAutoRejectThreshold: 0.40,
+  // TIGHTENED: Reduced from 0.40 to 0.35 for stricter noise rejection
+  zcrAutoRejectThreshold: 0.35,
 
   // SPECTRAL CONTRAST
   // Measures difference between peaks and valleys in spectrum
@@ -201,6 +206,93 @@ const CONFIG = {
   // Duration above which events are considered sustained noise (ms)
   // Ralph Loop: Reject constant environmental noise >2s
   sustainedNoiseRejectDurationMs: 2000,
+
+  // ══════════════════════════════════════════════════════════════════════════════════
+  // HARMONIC STRUCTURE DETECTION (NG-HARDEN-06)
+  // Detect and reject speech/music based on harmonic series patterns
+  // Speech has clear fundamental + harmonics (f0, 2f0, 3f0, 4f0...)
+  // Gut sounds are non-harmonic (irregular frequency content)
+  // ══════════════════════════════════════════════════════════════════════════════════
+
+  // Minimum number of harmonics to detect for speech classification
+  // Speech typically has 3-5+ clear harmonics
+  minHarmonicsForSpeech: 3,
+
+  // Tolerance for harmonic alignment (ratio of expected vs actual)
+  // 0.05 = 5% tolerance for f0 multiples
+  harmonicTolerance: 0.05,
+
+  // Minimum harmonic-to-noise ratio (HNR) for speech detection (dB)
+  // Speech: 10-25 dB, Gut sounds: <5 dB
+  hnrSpeechThreshold: 8.0,
+
+  // Fundamental frequency range for human speech (Hz)
+  // Male: 85-180Hz, Female: 165-255Hz, Children: 250-400Hz
+  speechF0MinHz: 80,
+  speechF0MaxHz: 400,
+
+  // ══════════════════════════════════════════════════════════════════════════════════
+  // ENHANCED CONTACT DETECTION (NG-HARDEN-07) - CRITICAL FIX
+  // Stronger validation of on-body vs in-air/on-table placement
+  //
+  // KEY INSIGHT: Quiet room ambient noise (HVAC, room hum) has SIMILAR spectral
+  // shape to on-body recordings (both are low-frequency dominant). So spectral
+  // shape alone CANNOT distinguish body contact from table/ambient noise.
+  //
+  // SOLUTION: Add TEMPORAL VARIABILITY check - body sounds have BURSTS with
+  // varying amplitude; ambient noise (HVAC) is CONSTANT/FLAT.
+  // ══════════════════════════════════════════════════════════════════════════════════
+
+  // Minimum low-frequency energy ratio for skin contact validation
+  // On-body: skin acts as low-pass filter, boosting <200Hz relative energy
+  // In-air: more uniform frequency distribution
+  skinContactLowFreqRatio: 0.45,
+
+  // High-frequency suppression expected when on skin
+  // Ratio of energy above 400Hz to total energy (should be LOW for on-body)
+  maxHighFreqRatioOnBody: 0.15,
+
+  // Spectral rolloff frequency threshold (Hz)
+  // On-body recordings have lower rolloff due to skin's low-pass effect
+  maxSpectralRolloffOnBody: 350,
+
+  // CRITICAL FIX: Temporal variability requirements
+  // Body sounds have BURSTS (high CV), ambient noise is CONSTANT (low CV)
+  // Coefficient of variation (CV = stdDev/mean) threshold for valid body contact
+  // Gut sounds: CV > 0.15 (bursts cause high variability)
+  // Ambient noise: CV < 0.08 (constant hum)
+  minCVForBodyContact: 0.12,
+
+  // Minimum number of amplitude peaks (>2x baseline) expected in body recordings
+  // Gut sounds: multiple distinct burst events per recording
+  // Ambient noise: flat with no distinct peaks
+  minBurstPeaksForBodyContact: 2,
+
+  // Peak detection threshold multiplier (peak must exceed baseline * this value)
+  burstPeakThresholdMultiplier: 2.0,
+
+  // Minimum energy variance ratio (max/min energy in windows)
+  // Body sounds: high ratio (bursts vs silence)
+  // Ambient noise: low ratio (constant level)
+  minEnergyVarianceRatio: 3.0,
+
+  // ══════════════════════════════════════════════════════════════════════════════════
+  // EXPANDED BREATH ARTIFACT DETECTION (NG-HARDEN-08)
+  // Wider detection range and better envelope matching for breathing
+  // ══════════════════════════════════════════════════════════════════════════════════
+
+  // Extended breath duration range (research shows 400ms-3000ms for full breath cycles)
+  breathVetoMinMsExtended: 400,
+  breathVetoMaxMsExtended: 3000,
+
+  // Breath envelope characteristics
+  // Breathing has slow attack (gradual onset) and slow decay
+  // Ratio of onset slope to peak - low ratio = gradual onset = breath-like
+  breathOnsetRatioThreshold: 0.3,
+
+  // Breath sounds have characteristic low-frequency emphasis
+  breathLowFreqEmphasisHz: 200,
+  breathLowFreqRatio: 0.6,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════════
@@ -1430,6 +1522,629 @@ export function applyPsychoacousticGating(
   };
 }
 
+// ══════════════════════════════════════════════════════════════════════════════════
+// HARMONIC STRUCTURE DETECTION (NG-HARDEN-06)
+// Detect and reject speech/music based on harmonic series patterns
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Result of harmonic structure analysis
+ */
+interface HarmonicAnalysisResult {
+  /** Is harmonic structure detected (likely speech/music)? */
+  isHarmonic: boolean;
+  /** Detected fundamental frequency (Hz), or null if not found */
+  fundamentalHz: number | null;
+  /** Number of harmonics detected */
+  harmonicCount: number;
+  /** Harmonic-to-Noise Ratio (dB) */
+  hnrDb: number;
+  /** Confidence of speech detection (0-1) */
+  speechConfidence: number;
+  /** Should this signal be rejected as speech/music? */
+  shouldReject: boolean;
+}
+
+/**
+ * Detect harmonic structure in audio to identify speech/music
+ *
+ * Speech and music have clear harmonic series: f0, 2*f0, 3*f0, 4*f0...
+ * Gut sounds are non-harmonic with irregular frequency content.
+ *
+ * Uses autocorrelation to find fundamental frequency, then checks
+ * for energy peaks at harmonic multiples.
+ *
+ * @param samples - Audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns HarmonicAnalysisResult with detection data
+ */
+function detectHarmonicStructure(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): HarmonicAnalysisResult {
+  const fftSize = CONFIG.fftWindowSize;
+
+  if (samples.length < fftSize) {
+    return {
+      isHarmonic: false,
+      fundamentalHz: null,
+      harmonicCount: 0,
+      hnrDb: 0,
+      speechConfidence: 0,
+      shouldReject: false,
+    };
+  }
+
+  // Step 1: Find fundamental frequency using autocorrelation
+  // Search in speech f0 range (80-400 Hz)
+  const minLag = Math.floor(sampleRate / CONFIG.speechF0MaxHz); // 400Hz -> ~110 samples
+  const maxLag = Math.floor(sampleRate / CONFIG.speechF0MinHz); // 80Hz -> ~551 samples
+
+  // Compute windowed samples
+  const windowSamples = samples.slice(0, Math.min(fftSize, samples.length));
+  const windowed = windowSamples.map(
+    (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (windowSamples.length - 1)))
+  );
+
+  // Autocorrelation for f0 detection
+  const mean = windowed.reduce((s, x) => s + x, 0) / windowed.length;
+  const centered = windowed.map((x) => x - mean);
+  const energy = centered.reduce((s, x) => s + x * x, 0);
+
+  if (energy < 1e-10) {
+    return {
+      isHarmonic: false,
+      fundamentalHz: null,
+      harmonicCount: 0,
+      hnrDb: 0,
+      speechConfidence: 0,
+      shouldReject: false,
+    };
+  }
+
+  // Find autocorrelation peak in f0 range
+  let bestLag = 0;
+  let bestCorr = 0;
+
+  for (let lag = minLag; lag <= Math.min(maxLag, centered.length - 1); lag++) {
+    let sum = 0;
+    for (let i = 0; i < centered.length - lag; i++) {
+      sum += centered[i] * centered[i + lag];
+    }
+    const corr = sum / energy;
+
+    if (corr > bestCorr) {
+      bestCorr = corr;
+      bestLag = lag;
+    }
+  }
+
+  // No clear fundamental found
+  if (bestCorr < 0.3 || bestLag === 0) {
+    return {
+      isHarmonic: false,
+      fundamentalHz: null,
+      harmonicCount: 0,
+      hnrDb: 0,
+      speechConfidence: 0,
+      shouldReject: false,
+    };
+  }
+
+  const fundamentalHz = sampleRate / bestLag;
+
+  // Step 2: Compute FFT and check for harmonic peaks
+  const fftResult = computeFFT(windowed);
+  const magnitudes = computeMagnitudeSpectrum(fftResult);
+  const freqPerBin = sampleRate / fftSize;
+
+  // Find energy at fundamental and its harmonics
+  const f0Bin = Math.round(fundamentalHz / freqPerBin);
+  const tolerance = Math.max(1, Math.round(fundamentalHz * CONFIG.harmonicTolerance / freqPerBin));
+
+  let harmonicEnergy = 0;
+  let noiseEnergy = 0;
+  let harmonicCount = 0;
+
+  // Check for harmonics (up to 8th harmonic or Nyquist)
+  const maxHarmonic = Math.min(8, Math.floor((sampleRate / 2) / fundamentalHz));
+
+  for (let h = 1; h <= maxHarmonic; h++) {
+    const expectedBin = Math.round(h * fundamentalHz / freqPerBin);
+    const minBin = Math.max(0, expectedBin - tolerance);
+    const maxBin = Math.min(magnitudes.length - 1, expectedBin + tolerance);
+
+    // Find peak near expected harmonic
+    let peakMag = 0;
+    for (let bin = minBin; bin <= maxBin; bin++) {
+      peakMag = Math.max(peakMag, magnitudes[bin]);
+    }
+
+    // Check if peak is significant (above local noise)
+    let localNoise = 0;
+    let noiseCount = 0;
+    for (let bin = Math.max(0, minBin - 5); bin < minBin; bin++) {
+      localNoise += magnitudes[bin];
+      noiseCount++;
+    }
+    for (let bin = maxBin + 1; bin <= Math.min(magnitudes.length - 1, maxBin + 5); bin++) {
+      localNoise += magnitudes[bin];
+      noiseCount++;
+    }
+    localNoise = noiseCount > 0 ? localNoise / noiseCount : 0;
+
+    // Harmonic is significant if it's 2x above local noise
+    if (peakMag > localNoise * 2) {
+      harmonicCount++;
+      harmonicEnergy += peakMag * peakMag;
+    }
+  }
+
+  // Compute total noise energy (non-harmonic bins)
+  for (let bin = 0; bin < magnitudes.length; bin++) {
+    const freq = bin * freqPerBin;
+    // Check if bin is near any harmonic
+    let isHarmonicBin = false;
+    for (let h = 1; h <= maxHarmonic; h++) {
+      const harmonicFreq = h * fundamentalHz;
+      if (Math.abs(freq - harmonicFreq) < fundamentalHz * CONFIG.harmonicTolerance) {
+        isHarmonicBin = true;
+        break;
+      }
+    }
+    if (!isHarmonicBin) {
+      noiseEnergy += magnitudes[bin] * magnitudes[bin];
+    }
+  }
+
+  // Compute HNR (Harmonic-to-Noise Ratio) in dB
+  const hnrDb = noiseEnergy > 0 ? 10 * Math.log10(harmonicEnergy / noiseEnergy) : 0;
+
+  // Classification
+  const isHarmonic = harmonicCount >= CONFIG.minHarmonicsForSpeech;
+  const isSpeechLike = isHarmonic && hnrDb >= CONFIG.hnrSpeechThreshold;
+
+  // Speech confidence based on harmonic count and HNR
+  let speechConfidence = 0;
+  if (isHarmonic) {
+    speechConfidence = Math.min(1, (harmonicCount - 2) / 4); // 3+ harmonics -> 0.25+
+    speechConfidence += Math.min(0.5, hnrDb / 20); // 10dB HNR -> 0.5
+  }
+
+  return {
+    isHarmonic,
+    fundamentalHz,
+    harmonicCount,
+    hnrDb,
+    speechConfidence,
+    shouldReject: isSpeechLike,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ENHANCED CONTACT DETECTION (NG-HARDEN-07)
+// Stronger validation of on-body vs in-air placement
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Result of contact quality analysis
+ */
+interface ContactQualityResult {
+  /** Is the device likely on skin (good contact)? */
+  isOnBody: boolean;
+  /** Ratio of low-frequency energy (<200Hz) to total */
+  lowFreqRatio: number;
+  /** Ratio of high-frequency energy (>400Hz) to total */
+  highFreqRatio: number;
+  /** Spectral rolloff frequency (Hz) - 85th percentile energy point */
+  spectralRolloff: number;
+  /** Confidence of on-body detection (0-1) */
+  contactConfidence: number;
+  /** Should recording be rejected as in-air? */
+  shouldRejectAsInAir: boolean;
+}
+
+/**
+ * Analyze spectral characteristics to determine if device is on skin
+ *
+ * When phone is pressed against skin:
+ * - Skin acts as a low-pass filter
+ * - Low frequencies (<200Hz) are emphasized
+ * - High frequencies (>400Hz) are attenuated
+ * - Spectral rolloff is lower
+ *
+ * When phone is in air:
+ * - More uniform frequency distribution
+ * - Higher spectral rolloff
+ * - Environmental sounds dominate
+ *
+ * @param samples - Audio samples
+ * @param sampleRate - Sample rate in Hz
+ * @returns ContactQualityResult with detection data
+ */
+function analyzeContactQuality(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): ContactQualityResult {
+  const fftSize = CONFIG.fftWindowSize;
+
+  if (samples.length < fftSize / 2) {
+    return {
+      isOnBody: false,
+      lowFreqRatio: 0,
+      highFreqRatio: 1,
+      spectralRolloff: sampleRate / 2,
+      contactConfidence: 0,
+      shouldRejectAsInAir: true,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // PART 1: SPECTRAL ANALYSIS (original criteria)
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Use first portion of samples for spectral analysis
+  const analysisSamples = samples.slice(0, Math.min(fftSize, samples.length));
+
+  // Apply Hann window
+  const windowed = analysisSamples.map(
+    (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (analysisSamples.length - 1)))
+  );
+
+  // Pad if needed
+  let paddedSamples: number[];
+  if (windowed.length < fftSize) {
+    paddedSamples = [...windowed, ...new Array(fftSize - windowed.length).fill(0)];
+  } else {
+    paddedSamples = windowed;
+  }
+
+  // Compute FFT
+  const fftResult = computeFFT(paddedSamples);
+  const magnitudes = computeMagnitudeSpectrum(fftResult);
+  const freqPerBin = sampleRate / fftSize;
+
+  // Calculate energy in frequency bands
+  const lowFreqBin = Math.floor(200 / freqPerBin);
+  const highFreqBin = Math.floor(400 / freqPerBin);
+
+  let lowFreqEnergy = 0;
+  let midFreqEnergy = 0;
+  let highFreqEnergy = 0;
+  let totalEnergy = 0;
+
+  for (let bin = 0; bin < magnitudes.length; bin++) {
+    const energy = magnitudes[bin] * magnitudes[bin];
+    totalEnergy += energy;
+
+    if (bin < lowFreqBin) {
+      lowFreqEnergy += energy;
+    } else if (bin < highFreqBin) {
+      midFreqEnergy += energy;
+    } else {
+      highFreqEnergy += energy;
+    }
+  }
+
+  const lowFreqRatio = totalEnergy > 0 ? lowFreqEnergy / totalEnergy : 0;
+  const highFreqRatio = totalEnergy > 0 ? highFreqEnergy / totalEnergy : 1;
+
+  // Calculate spectral rolloff (frequency below which 85% of energy is contained)
+  const targetEnergy = totalEnergy * 0.85;
+  let cumulativeEnergy = 0;
+  let rolloffBin = magnitudes.length - 1;
+
+  for (let bin = 0; bin < magnitudes.length; bin++) {
+    cumulativeEnergy += magnitudes[bin] * magnitudes[bin];
+    if (cumulativeEnergy >= targetEnergy) {
+      rolloffBin = bin;
+      break;
+    }
+  }
+
+  const spectralRolloff = rolloffBin * freqPerBin;
+
+  // Spectral criteria
+  const isLowFreqDominant = lowFreqRatio >= CONFIG.skinContactLowFreqRatio;
+  const isHighFreqSuppressed = highFreqRatio <= CONFIG.maxHighFreqRatioOnBody;
+  const isLowRolloff = spectralRolloff <= CONFIG.maxSpectralRolloffOnBody;
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // PART 2: TEMPORAL VARIABILITY ANALYSIS (CRITICAL FIX)
+  // Body sounds have BURSTS with varying amplitude
+  // Ambient noise (HVAC, table) is CONSTANT/FLAT
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Calculate RMS energy in windows across the recording
+  const windowSizeSamples = Math.floor((CONFIG.windowSizeMs / 1000) * sampleRate);
+  const energyWindows: number[] = [];
+
+  for (let i = 0; i + windowSizeSamples <= samples.length; i += windowSizeSamples) {
+    const windowData = samples.slice(i, i + windowSizeSamples);
+    const rms = Math.sqrt(windowData.reduce((sum, s) => sum + s * s, 0) / windowData.length);
+    energyWindows.push(rms);
+  }
+
+  // Calculate temporal variability metrics
+  let hasTemporalVariability = false;
+  let hasBurstPeaks = false;
+  let hasEnergyVariance = false;
+
+  // Diagnostic values for logging
+  let cv = 0;
+  let peakCount = 0;
+  let varianceRatio = 0;
+
+  if (energyWindows.length >= 5) {
+    const avgEnergy = energyWindows.reduce((s, e) => s + e, 0) / energyWindows.length;
+    const energyStdDev = Math.sqrt(
+      energyWindows.reduce((s, e) => s + (e - avgEnergy) ** 2, 0) / energyWindows.length
+    );
+
+    // Check 1: Coefficient of variation (CV)
+    // Body sounds: CV > 0.12 (bursts cause variability)
+    // Ambient noise: CV < 0.08 (constant level)
+    cv = avgEnergy > 0 ? energyStdDev / avgEnergy : 0;
+    hasTemporalVariability = cv >= CONFIG.minCVForBodyContact;
+
+    // Check 2: Count burst peaks (energy > 2x baseline)
+    const peakThreshold = avgEnergy * CONFIG.burstPeakThresholdMultiplier;
+    for (const energy of energyWindows) {
+      if (energy > peakThreshold) {
+        peakCount++;
+      }
+    }
+    hasBurstPeaks = peakCount >= CONFIG.minBurstPeaksForBodyContact;
+
+    // Check 3: Energy variance ratio (max/min)
+    const minEnergy = Math.max(0.0001, Math.min(...energyWindows));
+    const maxEnergy = Math.max(...energyWindows);
+    varianceRatio = maxEnergy / minEnergy;
+    hasEnergyVariance = varianceRatio >= CONFIG.minEnergyVarianceRatio;
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC LOGGING - TEMPORAL CHECK
+    // ═══════════════════════════════════════════════════════════════════════════════
+    console.log('=== TEMPORAL CHECK (analyzeContactQuality) ===');
+    console.log(`Energy windows: ${energyWindows.length}`);
+    console.log(`Avg energy: ${avgEnergy.toFixed(6)}, StdDev: ${energyStdDev.toFixed(6)}`);
+    console.log(`CV (coefficient of variation): ${cv.toFixed(4)} (need ≥${CONFIG.minCVForBodyContact} for body)`);
+    console.log(`Burst peaks (>${CONFIG.burstPeakThresholdMultiplier}x avg): ${peakCount} (need ≥${CONFIG.minBurstPeaksForBodyContact} for body)`);
+    console.log(`Energy variance ratio (max/min): ${varianceRatio.toFixed(2)} (need ≥${CONFIG.minEnergyVarianceRatio} for body)`);
+    console.log(`Temporal criteria: CV=${hasTemporalVariability ? '✓' : '✗'}, Peaks=${hasBurstPeaks ? '✓' : '✗'}, Variance=${hasEnergyVariance ? '✓' : '✗'}`);
+  } else {
+    console.log('=== TEMPORAL CHECK (analyzeContactQuality) ===');
+    console.log(`SKIPPED: Only ${energyWindows.length} energy windows (need ≥5)`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // PART 3: COMBINED CLASSIFICATION (CRITICAL FIX)
+  //
+  // OLD LOGIC (BROKEN):
+  //   shouldRejectAsInAir = spectralCriteria === 0
+  //   (Only rejected if ALL spectral criteria failed - too permissive!)
+  //
+  // NEW LOGIC:
+  //   1. Spectral criteria alone are NOT sufficient (ambient noise passes them!)
+  //   2. MUST have temporal variability to be considered on-body
+  //   3. Reject if signal is FLAT (no bursts) regardless of spectral shape
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Count spectral criteria met
+  let spectralCriteriaMet = 0;
+  if (isLowFreqDominant) spectralCriteriaMet++;
+  if (isHighFreqSuppressed) spectralCriteriaMet++;
+  if (isLowRolloff) spectralCriteriaMet++;
+
+  // Count temporal criteria met
+  let temporalCriteriaMet = 0;
+  if (hasTemporalVariability) temporalCriteriaMet++;
+  if (hasBurstPeaks) temporalCriteriaMet++;
+  if (hasEnergyVariance) temporalCriteriaMet++;
+
+  // CRITICAL: Must pass BOTH spectral AND temporal checks
+  // - Spectral: at least 2/3 criteria
+  // - Temporal: at least 1/3 criteria (MUST have some variability)
+  const passesSpectralCheck = spectralCriteriaMet >= 2;
+  const passesTemporalCheck = temporalCriteriaMet >= 1;
+
+  const isOnBody = passesSpectralCheck && passesTemporalCheck;
+
+  // Confidence is average of both checks
+  const spectralConfidence = spectralCriteriaMet / 3;
+  const temporalConfidence = temporalCriteriaMet / 3;
+  const contactConfidence = (spectralConfidence + temporalConfidence) / 2;
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // NUCLEAR OPTION: EXPLICIT AMBIENT NOISE SIGNATURE DETECTION
+  // Ambient noise (table/room) has specific signature:
+  // - CV often in 0.10-0.20 range (some variability but not burst-like)
+  // - Low burst peak count (0-2 random spikes, not sustained gut activity)
+  // - Low-freq dominated (HVAC, room resonance)
+  // - Low energy variance ratio (no distinct events)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  const isAmbientNoiseSignature = (
+    cv < 0.15 &&           // Tighter CV threshold (was 0.12)
+    peakCount <= 2 &&      // Few or no burst peaks
+    varianceRatio < 4.0 && // Low dynamic range
+    isLowFreqDominant      // Low-freq dominated (HVAC, hum)
+  );
+
+  // CRITICAL FIX: Reject if temporal check fails (signal is FLAT = table/ambient)
+  // This catches the case where spectral shape looks like body (low-freq dominant)
+  // but signal has no burst variability (constant ambient noise)
+  // Also reject if ambient noise signature is detected
+  const shouldRejectAsInAir = !passesTemporalCheck || spectralCriteriaMet === 0 || isAmbientNoiseSignature;
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // DIAGNOSTIC LOGGING - FINAL DECISION
+  // ═══════════════════════════════════════════════════════════════════════════════
+  console.log('--- SPECTRAL CHECK ---');
+  console.log(`Low-freq ratio: ${lowFreqRatio.toFixed(3)} (need ≥${CONFIG.skinContactLowFreqRatio}): ${isLowFreqDominant ? '✓' : '✗'}`);
+  console.log(`High-freq ratio: ${highFreqRatio.toFixed(3)} (need ≤${CONFIG.maxHighFreqRatioOnBody}): ${isHighFreqSuppressed ? '✓' : '✗'}`);
+  console.log(`Spectral rolloff: ${spectralRolloff.toFixed(0)}Hz (need ≤${CONFIG.maxSpectralRolloffOnBody}): ${isLowRolloff ? '✓' : '✗'}`);
+  console.log(`Spectral criteria: ${spectralCriteriaMet}/3`);
+  console.log('--- AMBIENT NOISE SIGNATURE CHECK ---');
+  console.log(`CV < 0.15: ${cv < 0.15 ? '✓ (flat)' : '✗ (variable)'}`);
+  console.log(`Peaks ≤ 2: ${peakCount <= 2 ? '✓ (few peaks)' : '✗ (many peaks)'}`);
+  console.log(`Variance < 4.0: ${varianceRatio < 4.0 ? '✓ (low range)' : '✗ (high range)'}`);
+  console.log(`Low-freq dominant: ${isLowFreqDominant ? '✓' : '✗'}`);
+  console.log(`isAmbientNoiseSignature: ${isAmbientNoiseSignature}`);
+  console.log('--- FINAL DECISION ---');
+  console.log(`Passes spectral (≥2/3): ${passesSpectralCheck ? '✓' : '✗'}`);
+  console.log(`Passes temporal (≥1/3): ${passesTemporalCheck ? '✓' : '✗'}`);
+  console.log(`isOnBody: ${isOnBody}`);
+  console.log(`shouldRejectAsInAir: ${shouldRejectAsInAir}`);
+  console.log('=====================================');
+
+  return {
+    isOnBody,
+    lowFreqRatio,
+    highFreqRatio,
+    spectralRolloff,
+    contactConfidence,
+    shouldRejectAsInAir,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// EXPANDED BREATH ARTIFACT DETECTION (NG-HARDEN-08)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Result of breath artifact analysis
+ */
+interface BreathArtifactResult {
+  /** Is this likely a breath artifact? */
+  isBreathArtifact: boolean;
+  /** Duration of the event (ms) */
+  durationMs: number;
+  /** Onset ratio (attack energy / peak energy) - low = gradual = breath-like */
+  onsetRatio: number;
+  /** Low frequency emphasis ratio */
+  lowFreqEmphasis: number;
+  /** Confidence of breath detection (0-1) */
+  breathConfidence: number;
+}
+
+/**
+ * Detect breath artifacts using expanded criteria
+ *
+ * Breath characteristics:
+ * - Duration: 400-3000ms (expanded from 600-1000ms)
+ * - Gradual onset and decay (low onset slope)
+ * - Low-frequency emphasis (<200Hz)
+ * - Relatively smooth envelope
+ *
+ * @param samples - Audio samples for the event
+ * @param sampleRate - Sample rate in Hz
+ * @returns BreathArtifactResult with detection data
+ */
+function detectBreathArtifact(
+  samples: number[],
+  sampleRate: number = CONFIG.sampleRate
+): BreathArtifactResult {
+  const durationMs = (samples.length / sampleRate) * 1000;
+
+  // Quick reject if outside breath duration range
+  if (durationMs < CONFIG.breathVetoMinMsExtended || durationMs > CONFIG.breathVetoMaxMsExtended) {
+    return {
+      isBreathArtifact: false,
+      durationMs,
+      onsetRatio: 1,
+      lowFreqEmphasis: 0,
+      breathConfidence: 0,
+    };
+  }
+
+  // Calculate RMS envelope
+  const windowSize = Math.floor((50 / 1000) * sampleRate); // 50ms windows
+  const envelopeValues: number[] = [];
+
+  for (let i = 0; i + windowSize <= samples.length; i += windowSize / 2) {
+    const window = samples.slice(i, i + windowSize);
+    const rms = Math.sqrt(window.reduce((sum, s) => sum + s * s, 0) / window.length);
+    envelopeValues.push(rms);
+  }
+
+  if (envelopeValues.length < 4) {
+    return {
+      isBreathArtifact: false,
+      durationMs,
+      onsetRatio: 1,
+      lowFreqEmphasis: 0,
+      breathConfidence: 0,
+    };
+  }
+
+  // Find peak and calculate onset ratio
+  const peakEnergy = Math.max(...envelopeValues);
+  const peakIndex = envelopeValues.indexOf(peakEnergy);
+
+  // Onset energy (first 20% of envelope up to peak)
+  const onsetEnd = Math.max(1, Math.floor(peakIndex * 0.2));
+  const onsetEnergy = envelopeValues.slice(0, onsetEnd).reduce((s, e) => s + e, 0) / onsetEnd;
+
+  const onsetRatio = peakEnergy > 0 ? onsetEnergy / peakEnergy : 1;
+
+  // Calculate low-frequency emphasis
+  const fftSize = Math.min(CONFIG.fftWindowSize, samples.length);
+  let lowFreqEmphasis = 0;
+
+  if (samples.length >= fftSize / 2) {
+    const analysisSamples = samples.slice(0, fftSize);
+    const windowed = analysisSamples.map(
+      (s, i) => s * 0.5 * (1 - Math.cos((2 * Math.PI * i) / (analysisSamples.length - 1)))
+    );
+
+    const paddedSamples = windowed.length < fftSize
+      ? [...windowed, ...new Array(fftSize - windowed.length).fill(0)]
+      : windowed;
+
+    const fftResult = computeFFT(paddedSamples);
+    const magnitudes = computeMagnitudeSpectrum(fftResult);
+    const freqPerBin = sampleRate / fftSize;
+
+    const lowFreqBin = Math.floor(CONFIG.breathLowFreqEmphasisHz / freqPerBin);
+
+    let lowEnergy = 0;
+    let totalEnergy = 0;
+
+    for (let bin = 0; bin < magnitudes.length; bin++) {
+      const energy = magnitudes[bin] * magnitudes[bin];
+      totalEnergy += energy;
+      if (bin < lowFreqBin) {
+        lowEnergy += energy;
+      }
+    }
+
+    lowFreqEmphasis = totalEnergy > 0 ? lowEnergy / totalEnergy : 0;
+  }
+
+  // Classification
+  const hasGradualOnset = onsetRatio < CONFIG.breathOnsetRatioThreshold;
+  const hasLowFreqEmphasis = lowFreqEmphasis >= CONFIG.breathLowFreqRatio;
+  const isInBreathDurationRange =
+    durationMs >= CONFIG.breathVetoMinMsExtended &&
+    durationMs <= CONFIG.breathVetoMaxMsExtended;
+
+  // Breath confidence
+  let breathConfidence = 0;
+  if (isInBreathDurationRange) breathConfidence += 0.3;
+  if (hasGradualOnset) breathConfidence += 0.4;
+  if (hasLowFreqEmphasis) breathConfidence += 0.3;
+
+  const isBreathArtifact = breathConfidence >= 0.6;
+
+  return {
+    isBreathArtifact,
+    durationMs,
+    onsetRatio,
+    lowFreqEmphasis,
+    breathConfidence,
+  };
+}
+
 /**
  * Perform full spectral analysis on a window of audio samples
  *
@@ -2083,29 +2798,72 @@ function calculateMotilityIndex(
  * @returns true if no skin contact detected (should report 0 events)
  */
 function detectNoSkinContact(energyValues: number[]): boolean {
-  if (energyValues.length < 10) return false;
+  console.log('=== DETECT NO SKIN CONTACT ===');
+
+  if (energyValues.length < 10) {
+    console.log(`SKIPPED: Only ${energyValues.length} energy values (need ≥10)`);
+    return false;
+  }
 
   const avgEnergy = mean(energyValues);
   const energyStdDev = stdDev(energyValues);
+
+  console.log(`Energy values: ${energyValues.length}`);
+  console.log(`Avg energy: ${avgEnergy.toFixed(6)}, StdDev: ${energyStdDev.toFixed(6)}`);
 
   // CHECK 1: Minimum energy threshold
   // Phone on skin should have baseline RMS above MIN_SKIN_CONTACT_RMS
   // If average energy is below this, phone is likely in air or on table
   if (avgEnergy < MIN_SKIN_CONTACT_RMS) {
-    return true;
+    console.log(`CHECK 1: Avg energy ${avgEnergy.toFixed(6)} < ${MIN_SKIN_CONTACT_RMS} threshold`);
+    console.log('RESULT: No contact - energy too low');
+    return true; // No contact - energy too low
   }
+  console.log(`CHECK 1: Avg energy ${avgEnergy.toFixed(6)} ≥ ${MIN_SKIN_CONTACT_RMS} threshold ✓`);
 
   // CHECK 2: Coefficient of variation (CV) = stdDev / mean
-  // Flat noise has very low CV (< 0.10) - consistent background hum
-  // Gut sounds should have more variance (CV > 0.10)
+  // TIGHTENED: CV threshold from 0.12 to 0.15 to catch more ambient noise
+  // Flat noise has very low CV (< 0.15) - consistent background hum
+  // Gut sounds should have more variance (CV > 0.15)
   const cv = avgEnergy > 0 ? energyStdDev / avgEnergy : 0;
+  console.log(`CHECK 2: CV = ${cv.toFixed(4)} (flat if < 0.15)`);
 
-  // CHECK 3: Very low standard deviation relative to mean
-  // Gut sounds have bursts; flat noise is consistent
-  const hasLowVariance = energyStdDev < avgEnergy * 0.08;
+  // CHECK 3: Count distinct peaks (energy > 2x average)
+  // Body sounds have burst peaks; ambient noise is flat
+  const peakThreshold = avgEnergy * 2.0;
+  let peakCount = 0;
+  for (const energy of energyValues) {
+    if (energy > peakThreshold) {
+      peakCount++;
+    }
+  }
+  const hasNoPeaks = peakCount < 2;
+  console.log(`CHECK 3: Burst peaks (>2x avg): ${peakCount} (need ≥2, hasNoPeaks=${hasNoPeaks})`);
 
-  // If CV is too low AND variance is low, it's likely flat noise (no contact)
-  return cv < 0.10 && hasLowVariance;
+  // CHECK 4: Energy range ratio (max/min)
+  // Body sounds have high dynamic range; ambient noise is compressed
+  const minEnergy = Math.max(0.0001, Math.min(...energyValues));
+  const maxEnergy = Math.max(...energyValues);
+  const dynamicRange = maxEnergy / minEnergy;
+  const hasLowDynamicRange = dynamicRange < 3.0;
+  console.log(`CHECK 4: Dynamic range (max/min): ${dynamicRange.toFixed(2)} (low if < 3.0, hasLowDynamicRange=${hasLowDynamicRange})`);
+
+  // REJECT if:
+  // - CV is too low (flat signal) OR
+  // - No burst peaks AND low dynamic range (constant noise)
+  // This catches table recordings with ambient hum that might have
+  // spectral characteristics similar to on-body recordings
+  // TIGHTENED: CV threshold from 0.12 to 0.15 to catch more ambient noise
+  const isFlatSignal = cv < 0.15;
+  const isConstantNoise = hasNoPeaks && hasLowDynamicRange;
+
+  const shouldReject = isFlatSignal || isConstantNoise;
+  console.log(`isFlatSignal (CV < 0.12): ${isFlatSignal}`);
+  console.log(`isConstantNoise (noPeaks && lowRange): ${isConstantNoise}`);
+  console.log(`RESULT: ${shouldReject ? 'REJECTED (no skin contact)' : 'ACCEPTED (appears to be on body)'}`);
+  console.log('=====================================');
+
+  return shouldReject;
 }
 
 /**
@@ -2230,9 +2988,35 @@ export function analyzeAudioSamples(
     };
   }
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // ENHANCED CONTACT QUALITY DETECTION (NG-HARDEN-07)
+  // Spectral analysis to determine if device is on skin vs in air
+  // ══════════════════════════════════════════════════════════════════════════════
+  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║         CONTACT QUALITY CHECK (analyzeContactQuality)           ║');
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  const contactQuality = analyzeContactQuality(filteredSamples, sampleRate);
+  if (contactQuality.shouldRejectAsInAir) {
+    console.log('>>> EARLY EXIT: shouldRejectAsInAir=true, returning 0 events');
+    // Return zero motility - spectral profile indicates phone is in air
+    return {
+      eventsPerMinute: 0,
+      totalActiveSeconds: 0,
+      totalQuietSeconds: Math.round(durationSeconds),
+      motilityIndex: 0,
+      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+      timelineSegments: CONFIG.timelineSegments,
+    };
+  }
+  console.log('>>> PASSED: analyzeContactQuality - proceeding to next check');
+
   // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
+  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║            SKIN CONTACT SENSOR (detectNoSkinContact)            ║');
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
   const noSkinContact = detectNoSkinContact(energyValues);
   if (noSkinContact) {
+    console.log('>>> EARLY EXIT: noSkinContact=true, returning 0 events');
     // Return zero motility for flat noise (phone on table, no skin contact)
     return {
       eventsPerMinute: 0,
@@ -2243,15 +3027,22 @@ export function analyzeAudioSamples(
       timelineSegments: CONFIG.timelineSegments,
     };
   }
+  console.log('>>> PASSED: detectNoSkinContact - proceeding to event detection');
 
   // ══════════════════════════════════════════════════════════════════════════════
   // FREQUENCY-WEIGHTED NOISE-FLOOR CALIBRATION (3-second window)
   // Enhanced with spectral analysis to detect air noise baseline (NG-HARDEN-03)
   // ══════════════════════════════════════════════════════════════════════════════
+  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                NOISE FLOOR CALIBRATION                           ║');
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
   const noiseFloor = computeNoiseFloor(energyValues, filteredSamples, sampleRate);
+  console.log(`Noise floor mean: ${noiseFloor.noiseFloorMean.toFixed(6)}, Event threshold: ${noiseFloor.eventThreshold.toFixed(6)}`);
+  console.log(`isAirNoiseBaseline: ${noiseFloor.isAirNoiseBaseline}`);
 
   // If baseline is dominated by air noise, use stricter detection
   if (noiseFloor.isAirNoiseBaseline) {
+    console.log('>>> EARLY EXIT: isAirNoiseBaseline=true, returning 0 events');
     // Return zero motility - baseline indicates phone is in air, not on skin
     return {
       eventsPerMinute: 0,
@@ -2262,32 +3053,39 @@ export function analyzeAudioSamples(
       timelineSegments: CONFIG.timelineSegments,
     };
   }
+  console.log('>>> PASSED: Noise floor check - proceeding to event detection');
 
   // Detect events using calibrated threshold
   let events = detectEvents(energyValues, noiseFloor.eventThreshold);
+  console.log(`\n[PIPELINE] Initial events detected: ${events.length}`);
 
   // ══════════════════════════════════════════════════════════════════════════════
   // TEMPORAL VETO FOR AIR/BREATH (800ms centered)
   // Filter out events matching breath artifact profile (600-1000ms, gradual onset)
   // ══════════════════════════════════════════════════════════════════════════════
+  const beforeBreathVeto = events.length;
   events = events.filter((event) => !isBreathLikeEvent(event, energyValues));
+  console.log(`[PIPELINE] After breath veto: ${events.length} (removed ${beforeBreathVeto - events.length})`);
 
   // ══════════════════════════════════════════════════════════════════════════════
   // DEEP SPECTRAL VETO (NG-HARDEN-03)
   // Analyze each event's spectrum to reject noise masquerading as gut sounds
   // ══════════════════════════════════════════════════════════════════════════════
+  const beforeSpectralVeto = events.length;
   events = events.filter((event) => !isSpectrallyNoise(
     filteredSamples,
     event,
     windowSizeSamples,
     sampleRate
   ));
+  console.log(`[PIPELINE] After spectral veto: ${events.length} (removed ${beforeSpectralVeto - events.length})`);
 
   // ══════════════════════════════════════════════════════════════════════════════
   // ACOUSTIC FINGERPRINTING + DURATION GATING (Ralph Loop + NG-HARDEN-05)
   // Uses validateBurstEvent() for constant noise rejection and burst validation
   // Accept short bursts (10ms-1500ms), reject constant noise >2s
   // ══════════════════════════════════════════════════════════════════════════════
+  const beforeBurstValidation = events.length;
   events = events.filter((event) => {
     // Extract samples for this event
     const startSample = event.startWindow * windowSizeSamples;
@@ -2323,11 +3121,13 @@ export function analyzeAudioSamples(
       eventDurationMs <= CONFIG.maxValidEventDurationMs
     );
   });
+  console.log(`[PIPELINE] After burst validation: ${events.length} (removed ${beforeBurstValidation - events.length})`);
 
   // ══════════════════════════════════════════════════════════════════════════════
   // TRANSIENT SUPPRESSION (NG-HARDEN-05)
   // Reject sharp transients (clicks, clatter, door slams) based on onset slope
   // ══════════════════════════════════════════════════════════════════════════════
+  const beforeTransientSuppress = events.length;
   events = events.filter((event) => {
     // Extract samples for this event
     const startSample = event.startWindow * windowSizeSamples;
@@ -2343,6 +3143,50 @@ export function analyzeAudioSamples(
     // Reject transients (sharp attacks, high energy ratio)
     return !transientResult.isTransient;
   });
+  console.log(`[PIPELINE] After transient suppression: ${events.length} (removed ${beforeTransientSuppress - events.length})`);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // HARMONIC STRUCTURE DETECTION (NG-HARDEN-06)
+  // Reject speech and music based on harmonic series patterns
+  // Speech has f0, 2f0, 3f0... ; gut sounds are non-harmonic
+  // ══════════════════════════════════════════════════════════════════════════════
+  const beforeHarmonicVeto = events.length;
+  events = events.filter((event) => {
+    const startSample = event.startWindow * windowSizeSamples;
+    const endSample = Math.min(
+      (event.endWindow + 1) * windowSizeSamples,
+      filteredSamples.length
+    );
+    const eventSamples = filteredSamples.slice(startSample, endSample);
+
+    // Skip harmonic analysis for very short events (< 100ms)
+    if (eventSamples.length < sampleRate * 0.1) {
+      return true; // Keep short events, they can't be speech
+    }
+
+    const harmonicResult = detectHarmonicStructure(eventSamples, sampleRate);
+    return !harmonicResult.shouldReject;
+  });
+  console.log(`[PIPELINE] After harmonic veto: ${events.length} (removed ${beforeHarmonicVeto - events.length})`);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // EXPANDED BREATH ARTIFACT DETECTION (NG-HARDEN-08)
+  // Reject breath sounds with expanded duration range (400-3000ms)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const beforeBreathArtifact = events.length;
+  events = events.filter((event) => {
+    const startSample = event.startWindow * windowSizeSamples;
+    const endSample = Math.min(
+      (event.endWindow + 1) * windowSizeSamples,
+      filteredSamples.length
+    );
+    const eventSamples = filteredSamples.slice(startSample, endSample);
+
+    const breathResult = detectBreathArtifact(eventSamples, sampleRate);
+    return !breathResult.isBreathArtifact;
+  });
+  console.log(`[PIPELINE] After breath artifact: ${events.length} (removed ${beforeBreathArtifact - events.length})`);
+  console.log(`\n[PIPELINE] FINAL: ${events.length} events in ${durationSeconds.toFixed(1)}s = ${(events.length / (durationSeconds / 60)).toFixed(1)} events/min`);
 
   // Calculate metrics
   const durationMinutes = durationSeconds / 60;
