@@ -29,6 +29,14 @@ export const ACCELEROMETER_CONFIG = {
   // Minimum samples needed for reliable detection
   minSamplesForDetection: 40, // 2 seconds at 20Hz
 
+  // SETTLING PERIOD: Only use last N samples for analysis
+  // This ignores initial placement movement and checks if phone is settled
+  // At 20Hz, 400 samples = 20 seconds of "settled" data
+  settledSampleCount: 400,
+
+  // Minimum settled samples needed (at least 5 seconds of settled data)
+  minSettledSamples: 100,
+
   // FLAT DETECTION
   // Phone flat on table: Z magnitude close to 1G (Expo returns G-force, not m/s²)
   // Threshold: if |avgZ| > 0.95, phone is nearly horizontal
@@ -184,17 +192,43 @@ export class AccelerometerContactDetector {
    * Analyze collected samples and determine contact status
    */
   analyze(): ContactDetectionResult {
-    const samples = this.samples;
-    const n = samples.length;
+    const allSamples = this.samples;
+    const totalSamples = allSamples.length;
 
     console.log('\n╔══════════════════════════════════════════════════════════════════╗');
     console.log('║            ACCELEROMETER CONTACT DETECTION                       ║');
     console.log('╚══════════════════════════════════════════════════════════════════╝');
+    console.log(`Total samples collected: ${totalSamples}`);
 
-    if (n < ACCELEROMETER_CONFIG.minSamplesForDetection) {
-      console.log(`[Accelerometer] Insufficient samples: ${n} < ${ACCELEROMETER_CONFIG.minSamplesForDetection}`);
+    if (totalSamples < ACCELEROMETER_CONFIG.minSamplesForDetection) {
+      console.log(`[Accelerometer] Insufficient samples: ${totalSamples} < ${ACCELEROMETER_CONFIG.minSamplesForDetection}`);
       return {
         noContact: false, // Don't reject if we can't detect
+        isFlat: false,
+        isStill: false,
+        avgZ: 0,
+        avgX: 0,
+        avgY: 0,
+        totalVariance: 0,
+        sampleCount: totalSamples,
+        confidence: 0,
+      };
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════════
+    // SETTLING PERIOD FIX: Only use LAST portion of samples
+    // This ignores initial placement movement and only checks if phone is settled
+    // ════════════════════════════════════════════════════════════════════════════════
+    const settledCount = Math.min(ACCELEROMETER_CONFIG.settledSampleCount, totalSamples);
+    const samples = allSamples.slice(-settledCount);
+    const n = samples.length;
+
+    console.log(`Using last ${n} samples for analysis (ignoring first ${totalSamples - n} placement samples)`);
+
+    if (n < ACCELEROMETER_CONFIG.minSettledSamples) {
+      console.log(`[Accelerometer] Insufficient settled samples: ${n} < ${ACCELEROMETER_CONFIG.minSettledSamples}`);
+      return {
+        noContact: false,
         isFlat: false,
         isStill: false,
         avgZ: 0,
@@ -206,7 +240,7 @@ export class AccelerometerContactDetector {
       };
     }
 
-    // Calculate averages
+    // Calculate averages from SETTLED samples only
     let sumX = 0, sumY = 0, sumZ = 0;
     for (const s of samples) {
       sumX += s.x;
