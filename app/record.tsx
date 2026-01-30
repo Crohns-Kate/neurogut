@@ -1290,9 +1290,24 @@ export default function GutSoundRecordingScreen() {
       setPhase("processing");
 
       // Stop accelerometer and analyze contact
+      console.log('\n========================================');
+      console.log('=== ACCELEROMETER GATE CHECK START ===');
+      console.log('========================================');
       stopAccelerometerMonitoring();
       const contactResult = analyzeAccelerometerContact();
-      console.log("[Record] Accelerometer contact result:", contactResult.noContact ? "NO CONTACT (table)" : "CONTACT OK");
+      console.log('========================================');
+      console.log('=== ACCELEROMETER GATE RESULT ===');
+      console.log('noContact:', contactResult.noContact);
+      console.log('isFlat:', contactResult.isFlat);
+      console.log('isStill:', contactResult.isStill);
+      console.log('avgZ:', contactResult.avgZ?.toFixed(4));
+      console.log('avgX:', contactResult.avgX?.toFixed(4));
+      console.log('avgY:', contactResult.avgY?.toFixed(4));
+      console.log('totalVariance:', contactResult.totalVariance?.toFixed(6));
+      console.log('sampleCount:', contactResult.sampleCount);
+      console.log('confidence:', contactResult.confidence?.toFixed(2));
+      console.log('>>> DECISION:', contactResult.noContact ? 'REJECT ALL (phone on table)' : 'PROCEED (contact detected)');
+      console.log('========================================\n');
 
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
@@ -1349,9 +1364,12 @@ export default function GutSoundRecordingScreen() {
 
         // Generate analytics for the session
         // ACCELEROMETER GATE: If phone was on table (flat + still), return zero events
+        console.log('\n========================================');
+        console.log('=== ANALYTICS GENERATION ===');
+        console.log('contactResult.noContact:', contactResult.noContact);
         let analytics;
         if (contactResult.noContact) {
-          console.log("[Record] ACCELEROMETER GATE: Phone on table - returning 0 events");
+          console.log('>>> ACCELEROMETER GATE ACTIVE: Returning 0 events');
           analytics = {
             eventsPerMinute: 0,
             totalActiveSeconds: 0,
@@ -1363,8 +1381,14 @@ export default function GutSoundRecordingScreen() {
         } else {
           // TODO: In the future, implement proper audio sample extraction
           // For now, we use placeholder analytics that simulate realistic values
+          console.log('>>> ACCELEROMETER GATE PASSED: Generating placeholder analytics');
           analytics = generatePlaceholderAnalytics(durationSeconds);
+          console.log('Placeholder analytics:', analytics.eventsPerMinute, 'events/min');
         }
+        console.log('=== FINAL ANALYTICS ===');
+        console.log('eventsPerMinute:', analytics.eventsPerMinute);
+        console.log('motilityIndex:', analytics.motilityIndex);
+        console.log('========================================\n');
         await updateSessionAnalytics(session.id, analytics);
 
         // Also update local list for display

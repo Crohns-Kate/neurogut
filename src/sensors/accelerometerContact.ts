@@ -98,15 +98,19 @@ export class AccelerometerContactDetector {
    * Start collecting accelerometer samples
    */
   async start(): Promise<void> {
+    console.log('[Accelerometer] ===== START CALLED =====');
+
     if (this.isRunning) {
-      console.log('[Accelerometer] Already running');
+      console.log('[Accelerometer] Already running, skipping start');
       return;
     }
 
     // Check availability
     const isAvailable = await Accelerometer.isAvailableAsync();
+    console.log('[Accelerometer] isAvailable:', isAvailable);
+
     if (!isAvailable) {
-      console.warn('[Accelerometer] Not available on this device');
+      console.warn('[Accelerometer] NOT AVAILABLE on this device - gate will not work!');
       return;
     }
 
@@ -116,9 +120,11 @@ export class AccelerometerContactDetector {
 
     // Set update interval (in ms)
     const intervalMs = Math.round(1000 / ACCELEROMETER_CONFIG.sampleRateHz);
+    console.log('[Accelerometer] Setting update interval:', intervalMs, 'ms');
     Accelerometer.setUpdateInterval(intervalMs);
 
     // Subscribe to updates
+    let sampleCount = 0;
     this.subscription = Accelerometer.addListener((data: AccelerometerMeasurement) => {
       this.samples.push({
         x: data.x,
@@ -126,21 +132,38 @@ export class AccelerometerContactDetector {
         z: data.z,
         timestamp: Date.now(),
       });
+      sampleCount++;
+      // Log every 20 samples (about 1 second)
+      if (sampleCount % 20 === 0) {
+        console.log(`[Accelerometer] Samples collected: ${sampleCount}, latest Z: ${data.z.toFixed(3)}`);
+      }
     });
 
-    console.log(`[Accelerometer] Started at ${ACCELEROMETER_CONFIG.sampleRateHz}Hz`);
+    console.log(`[Accelerometer] ===== STARTED at ${ACCELEROMETER_CONFIG.sampleRateHz}Hz =====`);
   }
 
   /**
    * Stop collecting samples
    */
   stop(): void {
+    console.log('[Accelerometer] ===== STOP CALLED =====');
+    console.log('[Accelerometer] isRunning:', this.isRunning);
+    console.log('[Accelerometer] hasSubscription:', !!this.subscription);
+
     if (this.subscription) {
       this.subscription.remove();
       this.subscription = null;
     }
     this.isRunning = false;
-    console.log(`[Accelerometer] Stopped. Collected ${this.samples.length} samples`);
+
+    console.log(`[Accelerometer] ===== STOPPED =====`);
+    console.log(`[Accelerometer] Total samples collected: ${this.samples.length}`);
+    console.log(`[Accelerometer] Minimum needed: ${ACCELEROMETER_CONFIG.minSamplesForDetection}`);
+
+    if (this.samples.length > 0) {
+      const lastSample = this.samples[this.samples.length - 1];
+      console.log(`[Accelerometer] Last sample: X=${lastSample.x.toFixed(3)}, Y=${lastSample.y.toFixed(3)}, Z=${lastSample.z.toFixed(3)}`);
+    }
   }
 
   /**
