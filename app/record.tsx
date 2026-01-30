@@ -1389,6 +1389,14 @@ export default function GutSoundRecordingScreen() {
     setStep1Completed(false);
     setStep2Completed(false);
     setStep3Completed(false);
+    // CRITICAL FIX: Reset signal check state to force fresh calibration
+    // Without this, signalPassed stays true from previous test, causing user to bypass
+    // the silence check which sets calibrationCompleted in the session context
+    setSignalPassed(null);
+    setSignalProgress(0);
+    setAmbientNoiseLevel(null);
+    setHummingDetected(false);
+    setBreathInterferenceDetected(false);
   };
 
   // Handle VagalPrimer completion
@@ -1409,6 +1417,7 @@ export default function GutSoundRecordingScreen() {
     sessionContext.setPhase("recording");
     // Skip signal check after primer skip - go directly to recording
     setStep3Completed(true);
+    sessionContext.completeCalibration(); // CRITICAL: Set calibration gate to avoid race condition
     startRecording();
   };
 
