@@ -3017,6 +3017,24 @@ export function analyzeAudioSamples(
   const { applyBirdFilter = true, isHummingPhase = false, accelerometerResult } = options;
 
   // ════════════════════════════════════════════════════════════════════════════════
+  // ACCELEROMETER BYPASS FLAG - DEFINED FIRST, USED THROUGHOUT
+  // If accelerometer confirmed body contact, skip ALL audio-based contact checks
+  // ════════════════════════════════════════════════════════════════════════════════
+  const accelerometerConfirmedContact = accelerometerResult?.varianceInBodyRange === true;
+
+  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║              ANALYZE AUDIO SAMPLES - START                       ║');
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log(`Duration: ${durationSeconds}s, Sample rate: ${sampleRate}Hz, Samples: ${samples.length}`);
+  console.log(`Accelerometer result provided: ${!!accelerometerResult}`);
+  console.log(`Accelerometer confirmed contact: ${accelerometerConfirmedContact}`);
+  if (accelerometerResult) {
+    console.log(`  - noContact: ${accelerometerResult.noContact}`);
+    console.log(`  - varianceInBodyRange: ${accelerometerResult.varianceInBodyRange}`);
+    console.log(`  - totalVariance: ${accelerometerResult.totalVariance?.toFixed(8) ?? 'N/A'}`);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════════
   // ACCELEROMETER CONTACT GATE (PRIMARY - takes precedence over all audio analysis)
   // If phone is flat + still (table), return 0 events immediately
   // This prevents false positives from ambient noise on table recordings
@@ -3089,44 +3107,52 @@ export function analyzeAudioSamples(
   // ══════════════════════════════════════════════════════════════════════════════
   // DEEP SPECTRAL HARDENING - AIR NOISE DETECTION (NG-HARDEN-03)
   // Check if entire recording is dominated by air noise BEFORE any processing
+  // SKIP if accelerometer confirmed body contact
   // ══════════════════════════════════════════════════════════════════════════════
-  const isDominatedByAirNoise = isRecordingDominatedByAirNoise(filteredSamples, sampleRate);
-  if (isDominatedByAirNoise) {
-    // Return zero motility - recording is air/breath noise, not gut sounds
-    return {
-      eventsPerMinute: 0,
-      totalActiveSeconds: 0,
-      totalQuietSeconds: Math.round(durationSeconds),
-      motilityIndex: 0,
-      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
-      timelineSegments: CONFIG.timelineSegments,
-    };
+  if (!accelerometerConfirmedContact) {
+    const isDominatedByAirNoise = isRecordingDominatedByAirNoise(filteredSamples, sampleRate);
+    if (isDominatedByAirNoise) {
+      console.log('>>> EARLY EXIT: isDominatedByAirNoise=true, returning 0 events');
+      // Return zero motility - recording is air/breath noise, not gut sounds
+      return {
+        eventsPerMinute: 0,
+        totalActiveSeconds: 0,
+        totalQuietSeconds: Math.round(durationSeconds),
+        motilityIndex: 0,
+        activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+        timelineSegments: CONFIG.timelineSegments,
+      };
+    }
+  } else {
+    console.log('>>> SKIPPING isDominatedByAirNoise check (accelerometer confirmed contact)');
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
   // PSYCHOACOUSTIC GATING (NG-HARDEN-04)
   // Temporal masking and rhythmic rejection for advanced noise filtering
+  // SKIP if accelerometer confirmed body contact
   // ══════════════════════════════════════════════════════════════════════════════
-  const psychoacousticGating = applyPsychoacousticGating(filteredSamples, sampleRate);
-  if (psychoacousticGating.shouldGate) {
-    // Return zero motility - stationary air or mechanical noise detected
-    return {
-      eventsPerMinute: 0,
-      totalActiveSeconds: 0,
-      totalQuietSeconds: Math.round(durationSeconds),
-      motilityIndex: 0,
-      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
-      timelineSegments: CONFIG.timelineSegments,
-    };
+  if (!accelerometerConfirmedContact) {
+    const psychoacousticGating = applyPsychoacousticGating(filteredSamples, sampleRate);
+    if (psychoacousticGating.shouldGate) {
+      console.log('>>> EARLY EXIT: psychoacousticGating.shouldGate=true, returning 0 events');
+      // Return zero motility - stationary air or mechanical noise detected
+      return {
+        eventsPerMinute: 0,
+        totalActiveSeconds: 0,
+        totalQuietSeconds: Math.round(durationSeconds),
+        motilityIndex: 0,
+        activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+        timelineSegments: CONFIG.timelineSegments,
+      };
+    }
+  } else {
+    console.log('>>> SKIPPING psychoacousticGating check (accelerometer confirmed contact)');
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // ACCELEROMETER TRUST: If accelerometer confirmed body contact, skip audio checks
-  // The accelerometer variance gate (breathing detection) is physics-based and reliable.
-  // Audio-based contact checks have too many false positives/negatives.
+  // AUDIO-BASED CONTACT CHECKS (only if no accelerometer confirmation)
   // ══════════════════════════════════════════════════════════════════════════════
-  const accelerometerConfirmedContact = accelerometerResult?.varianceInBodyRange === true;
-
   if (accelerometerConfirmedContact) {
     console.log('\n╔══════════════════════════════════════════════════════════════════╗');
     console.log('║   ACCELEROMETER CONFIRMED BODY CONTACT - SKIPPING AUDIO CHECKS  ║');
