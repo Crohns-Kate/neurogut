@@ -2498,10 +2498,14 @@ function computeNoiseFloor(
     // Fallback: not enough data for calibration, use full recording stats
     const noiseFloorMean = mean(energyValues);
     const noiseFloorStdDev = stdDev(energyValues);
+    // FORCE simple threshold: 3.5x noise floor (cap at 5x)
+    const rawThreshold = noiseFloorMean + CONFIG.thresholdMultiplier * noiseFloorStdDev;
+    const eventThreshold = Math.min(rawThreshold, noiseFloorMean * 5);
+    console.log(`[NoiseFloor FALLBACK] mean=${noiseFloorMean.toFixed(6)}, raw=${rawThreshold.toFixed(4)}, capped=${eventThreshold.toFixed(4)}`);
     return {
       noiseFloorMean,
       noiseFloorStdDev,
-      eventThreshold: noiseFloorMean + CONFIG.thresholdMultiplier * noiseFloorStdDev,
+      eventThreshold,
       calibrationWindows: actualCalibrationWindows,
       frequencyWeightedNoiseFloor: noiseFloorMean,
       baselineSfm: 0.5, // Unknown
@@ -2538,23 +2542,18 @@ function computeNoiseFloor(
   }
 
   // Event threshold: Use frequency-weighted noise floor for better accuracy
-  // If baseline is air noise, use higher threshold
-  const thresholdMultiplier = isAirNoiseBaseline
-    ? CONFIG.calibratedThresholdMultiplier * 1.5 // Higher threshold for noisy baseline
-    : CONFIG.calibratedThresholdMultiplier;
-
-  // Calculate threshold using stdDev method
+  // SIMPLIFIED: Just use 3.5x noise floor mean (capped at 5x)
+  // Previous stdDev-based formula produced thresholds 100x+ too high
   const baseNoiseFloor = Math.max(noiseFloorMean, frequencyWeightedNoiseFloor);
-  let eventThreshold = baseNoiseFloor + thresholdMultiplier * noiseFloorStdDev;
 
-  // CAP: Threshold should never exceed 5x the noise floor mean
-  // This prevents absurdly high thresholds when stdDev >> mean
-  // (which happens when gut sounds are incorrectly included in calibration window)
-  const maxThreshold = baseNoiseFloor * 5;
-  if (eventThreshold > maxThreshold) {
-    console.log(`[NoiseFloor] Capping threshold from ${eventThreshold.toFixed(4)} to ${maxThreshold.toFixed(4)} (5x noise floor)`);
-    eventThreshold = maxThreshold;
-  }
+  // FORCE simple multiplier approach
+  const simpleMultiplier = isAirNoiseBaseline ? 4.5 : 3.5;
+  const eventThreshold = baseNoiseFloor * simpleMultiplier;
+
+  console.log(`[NoiseFloor] baseNoiseFloor=${baseNoiseFloor.toFixed(6)}`);
+  console.log(`[NoiseFloor] multiplier=${simpleMultiplier} (isAirNoise=${isAirNoiseBaseline})`);
+  console.log(`[NoiseFloor] eventThreshold=${eventThreshold.toFixed(6)} (${simpleMultiplier}x noise floor)`);
+  console.log(`[NoiseFloor] stdDev was ${noiseFloorStdDev.toFixed(4)} (ignored - was causing 100x+ thresholds)`);
 
   return {
     noiseFloorMean,
