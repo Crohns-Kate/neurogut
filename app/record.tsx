@@ -13,6 +13,8 @@ import {
   TextInput,
   Modal,
   Pressable,
+  AppState,
+  AppStateStatus,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
@@ -598,6 +600,10 @@ export default function GutSoundRecordingScreen() {
   // Screen lock state (prevents accidental touches during recording)
   const [isScreenLocked, setIsScreenLocked] = useState(false);
 
+  // App state tracking (for background handling)
+  const appStateRef = useRef(AppState.currentState);
+  const [wasBackgrounded, setWasBackgrounded] = useState(false);
+
   // Playback state
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playbackPosition, setPlaybackPosition] = useState(0);
@@ -754,6 +760,40 @@ export default function GutSoundRecordingScreen() {
       setIsScreenLocked(false);
     }
   }, [phase]);
+
+  // Track app state changes (background/foreground) to prevent accidental exit
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      "change",
+      (nextAppState: AppStateStatus) => {
+        if (phase === "recording") {
+          // Detect when app goes to background during recording
+          if (
+            appStateRef.current === "active" &&
+            nextAppState.match(/inactive|background/)
+          ) {
+            console.log("[Record] App backgrounded during recording");
+            setWasBackgrounded(true);
+          }
+          // Detect when app returns to foreground
+          if (
+            appStateRef.current.match(/inactive|background/) &&
+            nextAppState === "active"
+          ) {
+            if (wasBackgrounded) {
+              Alert.alert(
+                "Recording Continued",
+                "Your recording continued in the background. Place your phone back on your abdomen to continue."
+              );
+              setWasBackgrounded(false);
+            }
+          }
+        }
+        appStateRef.current = nextAppState;
+      }
+    );
+    return () => subscription.remove();
+  }, [phase, wasBackgrounded]);
 
   // ============================================================================
   // MONOTONIC CLOCK SYSTEM for Precision 4-7-8 Breathing
@@ -2256,6 +2296,10 @@ export default function GutSoundRecordingScreen() {
             <Text style={styles.lockProgressText}>
               {Math.round(progressPercent)}% complete
             </Text>
+            {/* Protection hint */}
+            <Text style={styles.lockProtectionHint}>
+              Recording continues even if you leave the app
+            </Text>
           </View>
         </Pressable>
       )}
@@ -3124,11 +3168,21 @@ const styles = StyleSheet.create({
   },
   // Screen Lock Overlay styles
   lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    // Extend beyond screen edges to intercept swipe gestures
+    top: -50,
+    left: -50,
+    right: -50,
+    bottom: -50,
     backgroundColor: "#000000",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 9999,
+    // Extra padding to catch edge swipes
+    paddingTop: 50,
+    paddingLeft: 50,
+    paddingRight: 50,
+    paddingBottom: 50,
   },
   lockContent: {
     alignItems: "center",
@@ -3172,5 +3226,12 @@ const styles = StyleSheet.create({
   lockProgressText: {
     color: colors.textMuted,
     fontSize: typography.sizes.sm,
+  },
+  lockProtectionHint: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.xs,
+    marginTop: spacing.xl,
+    textAlign: "center",
+    opacity: 0.7,
   },
 });

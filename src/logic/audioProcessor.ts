@@ -1106,7 +1106,7 @@ export function validateBurstEvent(
 export const STETHOSCOPE_AUDIO_MODE = {
   allowsRecordingIOS: true,
   playsInSilentModeIOS: true,
-  staysActiveInBackground: false,
+  staysActiveInBackground: true, // Continue recording if app is backgrounded
   // iOS Measurement mode - bypasses all signal processing
   // This is critical for stethoscope use as it disables:
   // - Automatic Gain Control (AGC)
