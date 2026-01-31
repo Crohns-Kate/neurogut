@@ -3377,24 +3377,32 @@ export function analyzeAudioSamples(
   // ══════════════════════════════════════════════════════════════════════════════
   // TRANSIENT SUPPRESSION (NG-HARDEN-05)
   // Reject sharp transients (clicks, clatter, door slams) based on onset slope
+  // SKIP when accelerometer confirms body contact - gut sounds ARE sharp transients
   // ══════════════════════════════════════════════════════════════════════════════
   const beforeTransientSuppress = events.length;
-  events = events.filter((event) => {
-    // Extract samples for this event
-    const startSample = event.startWindow * windowSizeSamples;
-    const endSample = Math.min(
-      (event.endWindow + 1) * windowSizeSamples,
-      filteredSamples.length
-    );
-    const eventSamples = filteredSamples.slice(startSample, endSample);
+  if (accelerometerConfirmedContact) {
+    // Skip transient suppression - accelerometer confirmed body contact
+    // Gut sounds naturally have sharp transients, so this filter would reject them
+    console.log(`[PIPELINE] SKIPPING transient suppression (accelerometer confirmed contact)`);
+    console.log(`[PIPELINE] After transient suppression: ${events.length} (skipped - kept all)`);
+  } else {
+    events = events.filter((event) => {
+      // Extract samples for this event
+      const startSample = event.startWindow * windowSizeSamples;
+      const endSample = Math.min(
+        (event.endWindow + 1) * windowSizeSamples,
+        filteredSamples.length
+      );
+      const eventSamples = filteredSamples.slice(startSample, endSample);
 
-    // Detect if this is a sharp transient
-    const transientResult = detectTransient(eventSamples, sampleRate);
+      // Detect if this is a sharp transient
+      const transientResult = detectTransient(eventSamples, sampleRate);
 
-    // Reject transients (sharp attacks, high energy ratio)
-    return !transientResult.isTransient;
-  });
-  console.log(`[PIPELINE] After transient suppression: ${events.length} (removed ${beforeTransientSuppress - events.length})`);
+      // Reject transients (sharp attacks, high energy ratio)
+      return !transientResult.isTransient;
+    });
+    console.log(`[PIPELINE] After transient suppression: ${events.length} (removed ${beforeTransientSuppress - events.length})`);
+  }
 
   // ══════════════════════════════════════════════════════════════════════════════
   // HARMONIC STRUCTURE DETECTION (NG-HARDEN-06)
