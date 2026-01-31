@@ -2543,9 +2543,18 @@ function computeNoiseFloor(
     ? CONFIG.calibratedThresholdMultiplier * 1.5 // Higher threshold for noisy baseline
     : CONFIG.calibratedThresholdMultiplier;
 
-  const eventThreshold =
-    Math.max(noiseFloorMean, frequencyWeightedNoiseFloor) +
-    thresholdMultiplier * noiseFloorStdDev;
+  // Calculate threshold using stdDev method
+  const baseNoiseFloor = Math.max(noiseFloorMean, frequencyWeightedNoiseFloor);
+  let eventThreshold = baseNoiseFloor + thresholdMultiplier * noiseFloorStdDev;
+
+  // CAP: Threshold should never exceed 5x the noise floor mean
+  // This prevents absurdly high thresholds when stdDev >> mean
+  // (which happens when gut sounds are incorrectly included in calibration window)
+  const maxThreshold = baseNoiseFloor * 5;
+  if (eventThreshold > maxThreshold) {
+    console.log(`[NoiseFloor] Capping threshold from ${eventThreshold.toFixed(4)} to ${maxThreshold.toFixed(4)} (5x noise floor)`);
+    eventThreshold = maxThreshold;
+  }
 
   return {
     noiseFloorMean,

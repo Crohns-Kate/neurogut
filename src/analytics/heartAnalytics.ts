@@ -243,6 +243,49 @@ function calculateIntervals(peaks: Peak[]): number[] {
 }
 
 /**
+ * Filter intervals to physiological range and remove outliers
+ *
+ * Uses:
+ * 1. Hard limits: 400-1500ms (40-150 BPM)
+ * 2. Median filter: Remove intervals that differ from median by >50%
+ *
+ * This prevents noise peaks from corrupting RMSSD calculation.
+ */
+function filterIntervalsForHRV(intervals: number[]): number[] {
+  if (intervals.length < 3) return intervals;
+
+  const { minPeakDistanceMs, maxPeakDistanceMs } = HEART_CONFIG;
+
+  // Step 1: Filter to physiological range
+  let filtered = intervals.filter(i =>
+    i >= minPeakDistanceMs && i <= maxPeakDistanceMs
+  );
+
+  if (filtered.length < 3) {
+    console.log(`[HRV] Too few intervals after physiological filter: ${filtered.length}`);
+    return filtered;
+  }
+
+  // Step 2: Calculate median
+  const sorted = [...filtered].sort((a, b) => a - b);
+  const medianIndex = Math.floor(sorted.length / 2);
+  const medianInterval = sorted.length % 2 === 0
+    ? (sorted[medianIndex - 1] + sorted[medianIndex]) / 2
+    : sorted[medianIndex];
+
+  // Step 3: Remove outliers (>50% from median)
+  const outlierThreshold = 0.5;
+  const finalFiltered = filtered.filter(i =>
+    Math.abs(i - medianInterval) / medianInterval <= outlierThreshold
+  );
+
+  console.log(`[HRV] Interval filtering: ${intervals.length} raw -> ${filtered.length} physiological -> ${finalFiltered.length} after outlier removal`);
+  console.log(`[HRV] Median interval: ${medianInterval.toFixed(0)}ms (${(60000 / medianInterval).toFixed(0)} BPM)`);
+
+  return finalFiltered;
+}
+
+/**
  * Calculate RMSSD (Root Mean Square of Successive Differences)
  *
  * RMSSD is a time-domain HRV metric that reflects parasympathetic
@@ -365,11 +408,26 @@ export function analyzeHeartRate(
 
   // Step 5: Calculate intervals
   console.log('\n[4] Calculating inter-beat intervals...');
-  const intervals = calculateIntervals(peaks);
-  const avgIntervalMs = intervals.reduce((sum, v) => sum + v, 0) / intervals.length;
-  const intervalStdDev_ = stdDev(intervals);
+  const rawIntervals = calculateIntervals(peaks);
+  console.log(`    Raw intervals: ${rawIntervals.length}`);
 
-  // Step 6: Calculate BPM
+  // Step 5b: Filter intervals for physiological validity and outlier removal
+  const filteredIntervals = filterIntervalsForHRV(rawIntervals);
+
+  if (filteredIntervals.length < 3) {
+    console.log(`>>> Insufficient valid intervals (${filteredIntervals.length} < 3)`);
+    return {
+      ...defaultResult,
+      beatCount: peaks.length,
+      peakTimestamps: peaks.map(p => p.timestampMs),
+      confidence: 0.2,
+    };
+  }
+
+  const avgIntervalMs = filteredIntervals.reduce((sum, v) => sum + v, 0) / filteredIntervals.length;
+  const intervalStdDev_ = stdDev(filteredIntervals);
+
+  // Step 6: Calculate BPM from filtered intervals
   const bpm = 60000 / avgIntervalMs;
   console.log(`    Average interval: ${avgIntervalMs.toFixed(1)}ms`);
   console.log(`    Interval std dev: ${intervalStdDev_.toFixed(1)}ms`);
@@ -381,10 +439,10 @@ export function analyzeHeartRate(
     console.log(`>>> BPM ${bpm.toFixed(1)} outside physiological range [${HEART_CONFIG.minBPM}-${HEART_CONFIG.maxBPM}]`);
   }
 
-  // Step 7: Calculate HRV (RMSSD)
+  // Step 7: Calculate HRV (RMSSD) from FILTERED intervals
   console.log('\n[5] Calculating HRV metrics...');
-  const hrvValid = intervals.length >= HEART_CONFIG.minBeatsForValidHRV;
-  const rmssd = hrvValid ? calculateRMSSD(intervals) : 0;
+  const hrvValid = filteredIntervals.length >= HEART_CONFIG.minBeatsForValidHRV;
+  const rmssd = hrvValid ? calculateRMSSD(filteredIntervals) : 0;
   const vagalToneScore = hrvValid ? calculateVagalToneScore(rmssd) : 0;
 
   console.log(`    RMSSD: ${rmssd.toFixed(1)}ms`);
