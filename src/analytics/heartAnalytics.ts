@@ -147,8 +147,9 @@ function computeEnvelope(samples: number[], windowSize: number): number[] {
 /**
  * Detect peaks in the envelope signal
  *
- * Uses adaptive thresholding and minimum distance constraint
- * to find heartbeat peaks.
+ * Uses adaptive thresholding, prominence checking, and minimum distance
+ * constraint to find heartbeat peaks. Stricter than before to avoid
+ * detecting noise peaks between real heartbeats.
  */
 function detectHeartbeatPeaks(
   envelope: number[],
@@ -159,22 +160,51 @@ function detectHeartbeatPeaks(
   const peaks: Peak[] = [];
   const minDistanceSamples = Math.floor((HEART_CONFIG.minPeakDistanceMs / 1000) * sampleRate);
 
-  // Calculate adaptive threshold (mean + std dev)
-  const mean = envelope.reduce((sum, v) => sum + v, 0) / envelope.length;
-  const variance = envelope.reduce((sum, v) => sum + (v - mean) ** 2, 0) / envelope.length;
-  const stdDev = Math.sqrt(variance);
-  const threshold = mean + 0.5 * stdDev;
+  // Calculate signal statistics using median (more robust than mean)
+  const sorted = [...envelope].sort((a, b) => a - b);
+  const medianEnvelope = sorted[Math.floor(sorted.length / 2)];
+  const p75 = sorted[Math.floor(sorted.length * 0.75)];
+  const p90 = sorted[Math.floor(sorted.length * 0.90)];
 
-  // Find local maxima above threshold
+  // Threshold: Use 75th percentile or 1.3x median (whichever is higher)
+  // This is stricter than old mean + 0.5*stdDev
+  const threshold = Math.max(p75, medianEnvelope * 1.3);
+
+  // Prominence window: check local area around peak (100ms each side)
+  const prominenceWindowSamples = Math.floor(0.1 * sampleRate);
+  const PROMINENCE_MULTIPLIER = 1.5; // Peak must be 1.5x local average
+
+  console.log(`    [PeakDetect] Median envelope: ${medianEnvelope.toFixed(6)}`);
+  console.log(`    [PeakDetect] Threshold: ${threshold.toFixed(6)} (p75=${p75.toFixed(6)}, 1.3*median=${(medianEnvelope * 1.3).toFixed(6)})`);
+  console.log(`    [PeakDetect] Min peak distance: ${HEART_CONFIG.minPeakDistanceMs}ms (${minDistanceSamples} samples)`);
+
+  // Find local maxima above threshold with prominence check
   let lastPeakIndex = -minDistanceSamples;
+  let rejectedByDistance = 0;
+  let rejectedByProminence = 0;
 
   for (let i = 1; i < envelope.length - 1; i++) {
     const current = envelope[i];
     const prev = envelope[i - 1];
     const next = envelope[i + 1];
 
-    // Is this a local maximum?
+    // Is this a local maximum above threshold?
     if (current > prev && current > next && current > threshold) {
+      // Prominence check: peak must be significantly above local average
+      const windowStart = Math.max(0, i - prominenceWindowSamples);
+      const windowEnd = Math.min(envelope.length, i + prominenceWindowSamples);
+      let localSum = 0;
+      for (let j = windowStart; j < windowEnd; j++) {
+        localSum += envelope[j];
+      }
+      const localAvg = localSum / (windowEnd - windowStart);
+
+      // Reject if not prominent enough
+      if (current < localAvg * PROMINENCE_MULTIPLIER) {
+        rejectedByProminence++;
+        continue;
+      }
+
       // Check minimum distance from last peak
       if (i - lastPeakIndex >= minDistanceSamples) {
         peaks.push({
@@ -183,17 +213,23 @@ function detectHeartbeatPeaks(
           timestampMs: (i / sampleRate) * 1000,
         });
         lastPeakIndex = i;
-      } else if (current > peaks[peaks.length - 1]?.amplitude) {
-        // Replace last peak if this one is higher (within min distance)
+      } else if (current > peaks[peaks.length - 1]?.amplitude * 1.2) {
+        // Only replace if significantly higher (20% higher, not just higher)
         peaks[peaks.length - 1] = {
           index: i,
           amplitude: current,
           timestampMs: (i / sampleRate) * 1000,
         };
         lastPeakIndex = i;
+      } else {
+        rejectedByDistance++;
       }
     }
   }
+
+  console.log(`    [PeakDetect] Peaks found: ${peaks.length}`);
+  console.log(`    [PeakDetect] Rejected by distance: ${rejectedByDistance}`);
+  console.log(`    [PeakDetect] Rejected by prominence: ${rejectedByProminence}`);
 
   return peaks;
 }
@@ -247,9 +283,9 @@ function calculateIntervals(peaks: Peak[]): number[] {
  *
  * Uses:
  * 1. Hard limits: 400-1500ms (40-150 BPM)
- * 2. Median filter: Remove intervals that differ from median by >50%
+ * 2. Median filter: Remove intervals that differ from median by >30%
  *
- * This prevents noise peaks from corrupting RMSSD calculation.
+ * Stricter than before (was 50%) to ensure clean RMSSD calculation.
  */
 function filterIntervalsForHRV(intervals: number[]): number[] {
   if (intervals.length < 3) return intervals;
@@ -260,6 +296,10 @@ function filterIntervalsForHRV(intervals: number[]): number[] {
   let filtered = intervals.filter(i =>
     i >= minPeakDistanceMs && i <= maxPeakDistanceMs
   );
+
+  const rejectedByRange = intervals.length - filtered.length;
+  console.log(`[HRV] Step 1 - Physiological range [${minPeakDistanceMs}-${maxPeakDistanceMs}ms]:`);
+  console.log(`[HRV]   Kept: ${filtered.length}, Rejected: ${rejectedByRange}`);
 
   if (filtered.length < 3) {
     console.log(`[HRV] Too few intervals after physiological filter: ${filtered.length}`);
@@ -273,14 +313,25 @@ function filterIntervalsForHRV(intervals: number[]): number[] {
     ? (sorted[medianIndex - 1] + sorted[medianIndex]) / 2
     : sorted[medianIndex];
 
-  // Step 3: Remove outliers (>50% from median)
-  const outlierThreshold = 0.5;
+  // Step 3: Remove outliers (>30% from median) - stricter than before (was 50%)
+  const outlierThreshold = 0.3;
   const finalFiltered = filtered.filter(i =>
     Math.abs(i - medianInterval) / medianInterval <= outlierThreshold
   );
 
-  console.log(`[HRV] Interval filtering: ${intervals.length} raw -> ${filtered.length} physiological -> ${finalFiltered.length} after outlier removal`);
-  console.log(`[HRV] Median interval: ${medianInterval.toFixed(0)}ms (${(60000 / medianInterval).toFixed(0)} BPM)`);
+  const rejectedAsOutliers = filtered.length - finalFiltered.length;
+  console.log(`[HRV] Step 2 - Outlier removal (±${outlierThreshold * 100}% from median):`);
+  console.log(`[HRV]   Median interval: ${medianInterval.toFixed(0)}ms (${(60000 / medianInterval).toFixed(0)} BPM)`);
+  console.log(`[HRV]   Valid range: ${(medianInterval * (1 - outlierThreshold)).toFixed(0)}-${(medianInterval * (1 + outlierThreshold)).toFixed(0)}ms`);
+  console.log(`[HRV]   Kept: ${finalFiltered.length}, Rejected as outliers: ${rejectedAsOutliers}`);
+
+  // Step 4: Log final interval statistics
+  if (finalFiltered.length > 0) {
+    const finalMean = finalFiltered.reduce((s, v) => s + v, 0) / finalFiltered.length;
+    const finalMin = Math.min(...finalFiltered);
+    const finalMax = Math.max(...finalFiltered);
+    console.log(`[HRV] Final intervals: mean=${finalMean.toFixed(0)}ms, range=[${finalMin.toFixed(0)}-${finalMax.toFixed(0)}ms]`);
+  }
 
   return finalFiltered;
 }
