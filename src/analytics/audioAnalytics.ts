@@ -3121,45 +3121,62 @@ export function analyzeAudioSamples(
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // ENHANCED CONTACT QUALITY DETECTION (NG-HARDEN-07)
-  // Spectral analysis to determine if device is on skin vs in air
+  // ACCELEROMETER TRUST: If accelerometer confirmed body contact, skip audio checks
+  // The accelerometer variance gate (breathing detection) is physics-based and reliable.
+  // Audio-based contact checks have too many false positives/negatives.
   // ══════════════════════════════════════════════════════════════════════════════
-  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
-  console.log('║         CONTACT QUALITY CHECK (analyzeContactQuality)           ║');
-  console.log('╚══════════════════════════════════════════════════════════════════╝');
-  const contactQuality = analyzeContactQuality(filteredSamples, sampleRate);
-  if (contactQuality.shouldRejectAsInAir) {
-    console.log('>>> EARLY EXIT: shouldRejectAsInAir=true, returning 0 events');
-    // Return zero motility - spectral profile indicates phone is in air
-    return {
-      eventsPerMinute: 0,
-      totalActiveSeconds: 0,
-      totalQuietSeconds: Math.round(durationSeconds),
-      motilityIndex: 0,
-      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
-      timelineSegments: CONFIG.timelineSegments,
-    };
-  }
-  console.log('>>> PASSED: analyzeContactQuality - proceeding to next check');
+  const accelerometerConfirmedContact = accelerometerResult?.varianceInBodyRange === true;
 
-  // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
-  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
-  console.log('║            SKIN CONTACT SENSOR (detectNoSkinContact)            ║');
-  console.log('╚══════════════════════════════════════════════════════════════════╝');
-  const noSkinContact = detectNoSkinContact(energyValues);
-  if (noSkinContact) {
-    console.log('>>> EARLY EXIT: noSkinContact=true, returning 0 events');
-    // Return zero motility for flat noise (phone on table, no skin contact)
-    return {
-      eventsPerMinute: 0,
-      totalActiveSeconds: 0,
-      totalQuietSeconds: Math.round(durationSeconds),
-      motilityIndex: 0,
-      activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
-      timelineSegments: CONFIG.timelineSegments,
-    };
+  if (accelerometerConfirmedContact) {
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║   ACCELEROMETER CONFIRMED BODY CONTACT - SKIPPING AUDIO CHECKS  ║');
+    console.log('╚══════════════════════════════════════════════════════════════════╝');
+    console.log(`Variance: ${accelerometerResult?.totalVariance?.toFixed(8) ?? 'N/A'}`);
+    console.log('>>> Trusting accelerometer - proceeding directly to event detection');
+  } else {
+    // No accelerometer data or not confirmed - fall back to audio-based checks
+    // ══════════════════════════════════════════════════════════════════════════════
+    // ENHANCED CONTACT QUALITY DETECTION (NG-HARDEN-07)
+    // Spectral analysis to determine if device is on skin vs in air
+    // ══════════════════════════════════════════════════════════════════════════════
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║         CONTACT QUALITY CHECK (analyzeContactQuality)           ║');
+    console.log('╚══════════════════════════════════════════════════════════════════╝');
+    console.log('(No accelerometer confirmation - using audio-based checks)');
+    const contactQuality = analyzeContactQuality(filteredSamples, sampleRate);
+    if (contactQuality.shouldRejectAsInAir) {
+      console.log('>>> EARLY EXIT: shouldRejectAsInAir=true, returning 0 events');
+      // Return zero motility - spectral profile indicates phone is in air
+      return {
+        eventsPerMinute: 0,
+        totalActiveSeconds: 0,
+        totalQuietSeconds: Math.round(durationSeconds),
+        motilityIndex: 0,
+        activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+        timelineSegments: CONFIG.timelineSegments,
+      };
+    }
+    console.log('>>> PASSED: analyzeContactQuality - proceeding to next check');
+
+    // SKIN CONTACT SENSOR: Check for flat noise (no skin contact)
+    console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+    console.log('║            SKIN CONTACT SENSOR (detectNoSkinContact)            ║');
+    console.log('╚══════════════════════════════════════════════════════════════════╝');
+    const noSkinContact = detectNoSkinContact(energyValues);
+    if (noSkinContact) {
+      console.log('>>> EARLY EXIT: noSkinContact=true, returning 0 events');
+      // Return zero motility for flat noise (phone on table, no skin contact)
+      return {
+        eventsPerMinute: 0,
+        totalActiveSeconds: 0,
+        totalQuietSeconds: Math.round(durationSeconds),
+        motilityIndex: 0,
+        activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
+        timelineSegments: CONFIG.timelineSegments,
+      };
+    }
+    console.log('>>> PASSED: detectNoSkinContact - proceeding to event detection');
   }
-  console.log('>>> PASSED: detectNoSkinContact - proceeding to event detection');
 
   // ══════════════════════════════════════════════════════════════════════════════
   // FREQUENCY-WEIGHTED NOISE-FLOOR CALIBRATION (3-second window)
@@ -3172,8 +3189,8 @@ export function analyzeAudioSamples(
   console.log(`Noise floor mean: ${noiseFloor.noiseFloorMean.toFixed(6)}, Event threshold: ${noiseFloor.eventThreshold.toFixed(6)}`);
   console.log(`isAirNoiseBaseline: ${noiseFloor.isAirNoiseBaseline}`);
 
-  // If baseline is dominated by air noise, use stricter detection
-  if (noiseFloor.isAirNoiseBaseline) {
+  // If baseline is dominated by air noise, reject UNLESS accelerometer confirmed body contact
+  if (noiseFloor.isAirNoiseBaseline && !accelerometerConfirmedContact) {
     console.log('>>> EARLY EXIT: isAirNoiseBaseline=true, returning 0 events');
     // Return zero motility - baseline indicates phone is in air, not on skin
     return {
@@ -3184,6 +3201,9 @@ export function analyzeAudioSamples(
       activityTimeline: new Array(CONFIG.timelineSegments).fill(0),
       timelineSegments: CONFIG.timelineSegments,
     };
+  }
+  if (noiseFloor.isAirNoiseBaseline && accelerometerConfirmedContact) {
+    console.log('>>> OVERRIDE: isAirNoiseBaseline=true BUT accelerometer confirmed contact - proceeding');
   }
   console.log('>>> PASSED: Noise floor check - proceeding to event detection');
 
