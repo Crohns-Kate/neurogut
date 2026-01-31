@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroGut Acoustics™ | Non-invasive GI Sound Insights & Gut-Brain Awareness</title>
+    <meta name="description" content="A non-invasive, smartphone-based GI sound and daily pattern awareness platform helping people understand gut activity, stress states, and lifestyle rhythms.">
+
+    <!-- Modern AI-Tech Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ai-dark': '#020617',
+                        'ai-darker': '#0A0A0A',
+                        'ai-navy': '#0B1120',
+                        'ai-cyan': '#00E5FF',
+                        'ai-neon': '#7CFFB2',
+                        'ai-purple': '#9D4EDD',
+                        'ai-grey': '#94A3B8',
+                        'ai-light': '#F1F5F9',
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                        'display': ['Space Grotesk', 'Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* ============================================
+           AI-TECH DESIGN SYSTEM
+           ============================================ */
+
+        /* Smooth scroll behavior */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* AI-Tech font stack and anti-aliasing */
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: #020617;
+            color: #F1F5F9;
+        }
+
+        /* Neural mesh background */
+        .neural-mesh {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.03;
+            background-image:
+                linear-gradient(rgba(0, 229, 255, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 229, 255, 0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Animated gradient blobs */
+        @keyframes blob-float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -50px) scale(1.1); }
+            66% { transform: translate(-20px, 20px) scale(0.9); }
+        }
+
+        .gradient-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.15;
+            animation: blob-float 20s ease-in-out infinite;
+        }
+
+        .blob-1 {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, #00E5FF 0%, transparent 70%);
+            top: -200px;
+            left: -200px;
+            animation-delay: 0s;
+        }
+
+        .blob-2 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, #9D4EDD 0%, transparent 70%);
+            bottom: -150px;
+            right: -150px;
+            animation-delay: -10s;
+        }
+
+        .blob-3 {
+            width: 350px;
+            height: 350px;
+            background: radial-gradient(circle, #7CFFB2 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            animation-delay: -5s;
+        }
+
+        /* AI Hero Section */
+        .hero-bg {
+            background: linear-gradient(135deg, #020617 0%, #0B1120 50%, #1E0A3E 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-bg::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 50%, rgba(0, 229, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(157, 78, 221, 0.08) 0%, transparent 50%);
+            z-index: 0;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* AI Waveform SVG container */
+        .waveform-container {
+            position: absolute;
+            bottom: -100px;
+            left: 0;
+            right: 0;
+            height: 300px;
+            opacity: 0.15;
+            overflow: hidden;
+        }
+
+        @keyframes wave-pulse {
+            0%, 100% { transform: scaleY(1); opacity: 0.15; }
+            50% { transform: scaleY(1.3); opacity: 0.25; }
+        }
+
+        .waveform-svg {
+            animation: wave-pulse 4s ease-in-out infinite;
+        }
+
+        .feature-img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 12px;
+        }
+
+        /* Neon accent line */
+        .accent-line {
+            width: 80px;
+            height: 2px;
+            background: linear-gradient(90deg, #00E5FF 0%, #7CFFB2 100%);
+            margin: 0 auto 2rem;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+        }
+
+        /* Section labels */
+        .section-label {
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #00E5FF;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        /* AI-tech button styles */
+        .btn-primary {
+            background: linear-gradient(135deg, #00E5FF 0%, #0077FF 100%);
+            color: #020617;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #7CFFB2 0%, #00E5FF 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .btn-primary:hover::before {
+            opacity: 1;
+        }
+
+        .btn-primary:hover {
+            box-shadow:
+                0 0 30px rgba(0, 229, 255, 0.5),
+                0 0 60px rgba(0, 229, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .btn-secondary {
+            background: rgba(0, 229, 255, 0.05);
+            color: #00E5FF;
+            border: 1px solid rgba(0, 229, 255, 0.3);
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 229, 255, 0.1);
+            border-color: #00E5FF;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+        }
+
+        /* Glassmorphism cards */
+        .glass-card {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            transition: all 0.4s ease;
+        }
+
+        .glass-card:hover {
+            background: rgba(15, 23, 42, 0.8);
+            border-color: rgba(0, 229, 255, 0.3);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.3),
+                0 0 40px rgba(0, 229, 255, 0.1);
+            transform: translateY(-4px);
+        }
+
+        /* Feature card hover effects */
+        .feature-card {
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .feature-card:hover {
+            background: rgba(15, 23, 42, 0.7);
+            border-color: rgba(0, 229, 255, 0.4);
+            box-shadow:
+                0 20px 60px rgba(0, 0, 0, 0.4),
+                0 0 50px rgba(0, 229, 255, 0.15);
+            transform: translateY(-6px) scale(1.02);
+        }
+
+        /* AI icon badges with glow */
+        .icon-badge {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #00E5FF 0%, #0077FF 100%);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 0 30px rgba(0, 229, 255, 0.4);
+            position: relative;
+        }
+
+        .icon-badge::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(135deg, #00E5FF, #7CFFB2);
+            border-radius: 16px;
+            opacity: 0;
+            z-index: -1;
+            transition: opacity 0.3s ease;
+        }
+
+        .icon-badge:hover::before {
+            opacity: 0.5;
+        }
+
+        /* Problem icon with neon ring */
+        .problem-icon {
+            width: 64px;
+            height: 64px;
+            background: rgba(0, 229, 255, 0.1);
+            border: 2px solid rgba(0, 229, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            color: #00E5FF;
+            flex-shrink: 0;
+            box-shadow: 0 0 25px rgba(0, 229, 255, 0.3);
+        }
+
+        .audience-icon {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.2) 0%, rgba(124, 255, 178, 0.2) 100%);
+            border: 2px solid rgba(0, 229, 255, 0.4);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 700;
+            color: #00E5FF;
+            flex-shrink: 0;
+            box-shadow: 0 0 30px rgba(0, 229, 255, 0.2);
+        }
+
+        /* ============================================
+           PREMIUM NOTIFICATION SYSTEM
+           ============================================ */
+
+        /* Notification container - positioned at top */
+        .notification-container {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 420px;
+            pointer-events: none;
+        }
+
+        /* Base notification card - glass-morphism style */
+        .notification {
+            position: relative;
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 16px;
+            padding: 20px 24px;
+            box-shadow:
+                0 8px 32px rgba(11, 17, 32, 0.08),
+                0 2px 8px rgba(11, 17, 32, 0.04),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            pointer-events: all;
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+            animation: notificationSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            transition: all 0.3s ease;
+        }
+
+        .notification:hover {
+            transform: translateY(0) scale(1);
+            box-shadow:
+                0 12px 40px rgba(11, 17, 32, 0.12),
+                0 4px 12px rgba(11, 17, 32, 0.06),
+                inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        }
+
+        /* Notification icon container */
+        .notification-icon {
+            flex-shrink: 0;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        /* Icon animation pulse */
+        .notification-icon::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 14px;
+            opacity: 0;
+            animation: iconPulse 2s ease-in-out infinite;
+        }
+
+        /* Notification content */
+        .notification-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .notification-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #0F172A;
+            margin: 0 0 4px 0;
+            line-height: 1.4;
+        }
+
+        .notification-message {
+            font-size: 14px;
+            color: #475569;
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        /* Close button */
+        .notification-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: rgba(15, 23, 42, 0.05);
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            color: #64748B;
+        }
+
+        .notification-close:hover {
+            background: rgba(15, 23, 42, 0.1);
+            color: #0F172A;
+            transform: scale(1.1);
+        }
+
+        /* Notification types */
+        .notification-success .notification-icon {
+            background: linear-gradient(135deg, #14B8A6 0%, #0D9488 100%);
+        }
+
+        .notification-success .notification-icon::before {
+            background: linear-gradient(135deg, #14B8A6 0%, #0D9488 100%);
+        }
+
+        .notification-info .notification-icon {
+            background: linear-gradient(135deg, #0B1120 0%, #1E293B 100%);
+        }
+
+        .notification-info .notification-icon::before {
+            background: linear-gradient(135deg, #0B1120 0%, #1E293B 100%);
+        }
+
+        .notification-warning .notification-icon {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+        }
+
+        .notification-warning .notification-icon::before {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+        }
+
+        .notification-error .notification-icon {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        }
+
+        .notification-error .notification-icon::before {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        }
+
+        /* Progress bar at bottom */
+        .notification-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: rgba(15, 23, 42, 0.1);
+            border-radius: 0 0 16px 16px;
+            overflow: hidden;
+        }
+
+        .notification-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #14B8A6 0%, #0D9488 100%);
+            border-radius: 0 0 16px 16px;
+            animation: progressShrink 5s linear forwards;
+        }
+
+        /* Animations */
+        @keyframes notificationSlideIn {
+            0% {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes notificationSlideOut {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+            }
+        }
+
+        @keyframes iconPulse {
+            0%, 100% {
+                opacity: 0;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.15;
+                transform: scale(1.3);
+            }
+        }
+
+        @keyframes progressShrink {
+            0% {
+                width: 100%;
+            }
+            100% {
+                width: 0%;
+            }
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 640px) {
+            .notification-container {
+                left: 16px;
+                right: 16px;
+                top: 16px;
+                max-width: none;
+            }
+
+            .notification {
+                padding: 16px 20px;
+            }
+        }
+    </style>
+</head>
+<body class="font-sans antialiased">
+
+    <!-- Neural Mesh Background -->
+    <div class="neural-mesh"></div>
+
+    <!-- Animated Gradient Blobs -->
+    <div class="gradient-blob blob-1"></div>
+    <div class="gradient-blob blob-2"></div>
+    <div class="gradient-blob blob-3"></div>
+
+    <!-- Premium Notification Container -->
+    <div id="notification-container" class="notification-container" style="z-index: 10000;"></div>
+
+    <!-- Sticky Navigation Header -->
+    <nav id="main-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300" style="background: rgba(2, 6, 23, 0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <a href="#" class="text-xl font-display font-bold bg-clip-text text-transparent bg-gradient-to-r from-ai-cyan to-ai-neon">
+                NeuroGut Acoustics™
+            </a>
+            <div class="hidden md:flex items-center space-x-8">
+                <a href="#how-it-helps" class="text-sm text-ai-grey hover:text-ai-cyan transition-colors">Features</a>
+                <a href="#who-its-for" class="text-sm text-ai-grey hover:text-ai-cyan transition-colors">Who It's For</a>
+                <a href="#partners" class="text-sm text-ai-grey hover:text-ai-cyan transition-colors">Partners</a>
+                <a href="#contact" class="btn-primary text-sm font-semibold px-5 py-2 rounded-lg">
+                    <span>Contact</span>
+                </a>
+            </div>
+            <!-- Mobile menu button -->
+            <button id="mobile-menu-btn" class="md:hidden text-ai-grey hover:text-ai-cyan">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
+        </div>
+        <!-- Mobile menu -->
+        <div id="mobile-menu" class="hidden md:hidden px-6 pb-4 space-y-3">
+            <a href="#how-it-helps" class="block text-sm text-ai-grey hover:text-ai-cyan transition-colors">Features</a>
+            <a href="#who-its-for" class="block text-sm text-ai-grey hover:text-ai-cyan transition-colors">Who It's For</a>
+            <a href="#partners" class="block text-sm text-ai-grey hover:text-ai-cyan transition-colors">Partners</a>
+            <a href="#contact" class="block text-sm text-ai-cyan font-semibold">Contact</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-bg text-white py-32 px-6 md:py-48 relative" style="padding-top: 140px;">
+        <div class="hero-content max-w-6xl mx-auto text-center">
+            <div class="section-label text-center mb-4">
+                EARLY CONCEPT / EXPLORING PARTNERS
+            </div>
+            <div class="inline-block px-5 py-2 bg-ai-cyan/10 border border-ai-cyan/30 rounded-full text-ai-cyan text-xs font-semibold mb-10 backdrop-blur-sm">
+                AI-Powered Bio-Acoustic Sensing
+            </div>
+            <h1 class="text-5xl md:text-7xl font-display font-bold mb-10 text-white tracking-tight leading-none">
+                The World's First Personal Window<br>
+                into Your Gut-Brain Connection
+            </h1>
+            <p class="text-xl md:text-2xl mb-8 text-ai-grey font-medium max-w-4xl mx-auto leading-relaxed">
+                NeuroGut Acoustics™ is a smartphone-based app that listens to your gut sounds and helps you connect <span class="text-ai-neon">butterflies</span>, <span class="text-ai-cyan">gurgles</span>, and <span class="text-ai-purple">flutters</span> with your stress, food, and daily rhythms.
+            </p>
+            <p class="text-base md:text-lg mb-14 text-ai-grey/80 max-w-3xl mx-auto leading-relaxed">
+                Instead of guessing what your gut is doing, you can capture short sound check-ins, combine them with mood and stress logs, and start seeing patterns over time. It's a wellbeing tool to help you understand your own body better today—with a long-term vision for research and clinical collaboration tomorrow.
+            </p>
+            <div class="flex flex-col sm:flex-row gap-5 justify-center items-center mb-10">
+                <a href="#who-its-for" class="btn-primary inline-block font-semibold px-10 py-5 rounded-xl text-base">
+                    <span>I'm interested as a user</span>
+                </a>
+                <a href="#partners" class="btn-secondary inline-block font-semibold px-10 py-5 rounded-xl text-base">
+                    I'm a clinician or partner
+                </a>
+            </div>
+
+            <!-- Prominent Disclaimer -->
+            <div class="inline-block px-6 py-3 bg-ai-purple/10 border border-ai-purple/30 rounded-xl text-ai-grey text-sm max-w-2xl">
+                <strong class="text-ai-purple">Wellness Tool:</strong> NeuroGut Acoustics™ provides awareness and insights—it does not diagnose, treat, or replace medical care.
+            </div>
+        </div>
+
+        <!-- AI Waveform -->
+        <div class="waveform-container">
+            <svg class="waveform-svg w-full h-full" viewBox="0 0 1200 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0 150 Q 100 100, 200 150 T 400 150 Q 500 200, 600 150 T 800 150 Q 900 100, 1000 150 T 1200 150"
+                      stroke="url(#waveGradient)" stroke-width="3" fill="none" opacity="0.6"/>
+                <path d="M0 150 Q 150 120, 300 150 T 600 150 Q 750 180, 900 150 T 1200 150"
+                      stroke="url(#waveGradient2)" stroke-width="2" fill="none" opacity="0.4"/>
+                <defs>
+                    <linearGradient id="waveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#00E5FF;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#7CFFB2;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="waveGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#9D4EDD;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#00E5FF;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+            </svg>
+        </div>
+    </section>
+
+    <!-- The Problem Section -->
+    <section class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">CHALLENGES /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-4 text-white">
+                    Navigating Gut Challenges Can Feel Overwhelming
+                </h2>
+            </div>
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="glass-card p-10">
+                    <div class="problem-icon mb-6">~</div>
+                    <h3 class="text-xl font-semibold mb-4 text-white">Butterflies, flutters, and gurgles</h3>
+                    <p class="text-ai-grey leading-relaxed">
+                        Some days your gut feels like a calm pond. Other days it's buzzing, churning, or strangely quiet—and you're not sure why.
+                    </p>
+                </div>
+
+                <div class="glass-card p-10">
+                    <div class="problem-icon mb-6">⚡</div>
+                    <h3 class="text-xl font-semibold mb-4 text-white">Stress makes everything louder</h3>
+                    <p class="text-ai-grey leading-relaxed">
+                        You notice that big emotions, conflict, or pressure seem to hit your gut first. But it's hard to prove or explain that to anyone else.
+                    </p>
+                </div>
+
+                <div class="glass-card p-10">
+                    <div class="problem-icon mb-6">?</div>
+                    <h3 class="text-xl font-semibold mb-4 text-white">Invisible activity</h3>
+                    <p class="text-ai-grey leading-relaxed">
+                        Gut sounds and rhythms are mostly hidden. You might sense them, but there's no simple way to observe or track what's really happening.
+                    </p>
+                </div>
+
+                <div class="glass-card p-10">
+                    <div class="problem-icon mb-6">···</div>
+                    <h3 class="text-xl font-semibold mb-4 text-white">Hard to explain to others</h3>
+                    <p class="text-ai-grey leading-relaxed">
+                        When you talk to family, friends, or clinicians, it can be difficult to describe what your gut feels like day-to-day in a way that makes sense.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How NeuroGut Acoustics Helps -->
+    <section id="how-it-helps" class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">FEATURES /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-6 text-white">
+                    How NeuroGut Acoustics™ Helps
+                </h2>
+                <p class="text-lg text-ai-grey max-w-3xl mx-auto">
+                    A wellbeing and self-management platform designed to give you insight and awareness—not diagnosis or treatment.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Card 1 -->
+                <div class="feature-card rounded-xl overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1551434678-e076c223a692?w=500&h=300&fit=crop&q=80"
+                         alt="Smartphone on abdomen for sound recording"
+                         class="feature-img opacity-60">
+                    <div class="p-7">
+                        <div class="icon-badge mb-5" style="font-size: 20px; font-weight: 600;">
+                            ♪
+                        </div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">GI Sound Check</h3>
+                        <p class="text-ai-grey text-sm leading-relaxed">
+                            Use your smartphone like a gentle stethoscope. Rest it on your abdomen for short check-ins and capture the natural sounds your gut is already making. Non-invasive, no extra hardware.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Card 2 -->
+                <div class="feature-card rounded-xl overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500&h=300&fit=crop&q=80"
+                         alt="Data patterns and AI analysis visualization"
+                         class="feature-img opacity-60">
+                    <div class="p-7">
+                        <div class="icon-badge mb-5" style="font-size: 20px; font-weight: 600;">
+                            ≈
+                        </div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Pattern Insights (Non-diagnostic)</h3>
+                        <p class="text-ai-grey text-sm leading-relaxed">
+                            AI-assisted pattern recognition highlights general activity rhythms—like more active versus quieter periods, or clusters of sounds. This is <strong class="text-ai-neon">awareness only</strong>, not diagnosis.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Card 3 -->
+                <div class="feature-card rounded-xl overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1559757175-5700dde675bc?w=500&h=300&fit=crop&q=80"
+                         alt="Mind-body connection and wellness"
+                         class="feature-img opacity-60">
+                    <div class="p-7">
+                        <div class="icon-badge mb-5" style="font-size: 20px; font-weight: 600;">
+                            ⟲
+                        </div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Gut–Brain Awareness</h3>
+                        <p class="text-ai-grey text-sm leading-relaxed">
+                            Log stress levels, sleep quality, meals, and mood so you can explore how your emotional state and daily habits line up with your gut sound patterns.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Card 4 -->
+                <div class="feature-card rounded-xl overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=500&h=300&fit=crop&q=80"
+                         alt="Doctor patient conversation and collaboration"
+                         class="feature-img opacity-60">
+                    <div class="p-7">
+                        <div class="icon-badge mb-5" style="font-size: 20px; font-weight: 600;">
+                            ↗
+                        </div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Better Conversations</h3>
+                        <p class="text-ai-grey text-sm leading-relaxed">
+                            Turn your observations into simple summaries you can share with family or discuss with clinicians—so you're not relying only on memory and vague descriptions.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-14">
+                <div class="glass-card p-6 md:p-8 max-w-5xl mx-auto">
+                    <div class="section-label text-center mb-4">DEMO /</div>
+                    <h3 class="text-2xl font-display font-semibold text-white text-center mb-3">
+                        Insight Engine + Vagal Readiness Score
+                    </h3>
+                    <p class="text-ai-grey text-sm text-center mb-6">
+                        Auto‑playing preview of the product video.
+                    </p>
+                    <div class="relative w-full overflow-hidden rounded-xl border border-white/10">
+                        <video
+                            id="demo-video"
+                            class="w-full h-auto cursor-pointer"
+                            controls
+                            loop
+                            playsinline
+                            preload="auto"
+                            src="media/neurogut-demo.mp4"
+                        ></video>
+                        <!-- Play button overlay with video frame showing behind -->
+                        <div id="video-play-overlay" class="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm cursor-pointer transition-opacity duration-300">
+                            <div class="text-center">
+                                <div class="w-24 h-24 bg-gradient-to-br from-ai-cyan to-ai-neon rounded-full flex items-center justify-center mb-4 mx-auto hover:scale-110 transition-transform shadow-2xl shadow-ai-cyan/40">
+                                    <svg class="w-10 h-10 text-ai-dark ml-1" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                </div>
+                                <p class="text-white text-lg font-semibold mb-1">Watch Product Demo</p>
+                                <p class="text-ai-cyan text-sm">🔊 Click to play with sound</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-10">
+                <div class="glass-card p-6 md:p-8 max-w-3xl mx-auto text-center">
+                    <div class="section-label text-center mb-3">KEY METRIC /</div>
+                    <h4 class="text-xl font-display font-semibold text-white mb-3">
+                        Vagal Readiness Score (VRS)
+                    </h4>
+                    <p class="text-ai-grey text-sm leading-relaxed">
+                        A single, interpretable score that quantifies baseline motility and rhythmicity,
+                        helping users track autonomic readiness across sessions.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Technical Specifications -->
+            <div class="mt-14">
+                <div class="glass-card p-6 md:p-8 max-w-5xl mx-auto" id="tech-specs">
+                    <div class="section-label text-center mb-4">TECHNOLOGY /</div>
+                    <h3 class="text-2xl font-display font-semibold text-white text-center mb-6">
+                        Advanced Acoustic Processing
+                    </h3>
+
+                    <div class="grid md:grid-cols-3 gap-6 mb-8">
+                        <div class="bg-ai-darker/50 rounded-xl p-5 text-center">
+                            <div class="text-3xl font-bold text-ai-cyan mb-2">100-450 Hz</div>
+                            <div class="text-sm text-ai-grey">Gut Sound Frequency Band</div>
+                        </div>
+                        <div class="bg-ai-darker/50 rounded-xl p-5 text-center">
+                            <div class="text-3xl font-bold text-ai-neon mb-2">60 dB</div>
+                            <div class="text-sm text-ai-grey">Noise Rejection per Octave</div>
+                        </div>
+                        <div class="bg-ai-darker/50 rounded-xl p-5 text-center">
+                            <div class="text-3xl font-bold text-ai-purple mb-2">20-1500ms</div>
+                            <div class="text-sm text-ai-grey">Event Duration Gating</div>
+                        </div>
+                    </div>
+
+                    <div class="text-center">
+                        <p class="text-ai-grey text-sm leading-relaxed max-w-2xl mx-auto">
+                            Our proprietary acoustic filter uses a 3rd-order Butterworth bandpass design with adaptive SNR thresholding
+                            to isolate gut sounds while automatically rejecting breathing artifacts and environmental noise.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-12 text-center">
+                <div class="glass-card p-6 max-w-3xl mx-auto">
+                    <p class="text-ai-grey text-sm leading-relaxed">
+                        <strong class="font-semibold text-ai-cyan">Important:</strong> NeuroGut Acoustics™ provides insight and awareness to support your wellbeing journey—it does not diagnose, treat, or replace professional medical care.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">PROCESS /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-4 text-white">
+                    How it works (early concept)
+                </h2>
+            </div>
+
+            <div class="space-y-6">
+                <div class="glass-card p-8 flex items-start space-x-6">
+                    <div class="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-ai-cyan to-ai-neon rounded-2xl flex items-center justify-center text-ai-dark font-bold text-xl shadow-lg shadow-ai-cyan/30">
+                        1
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-3 text-white">Record short gut sound check-ins</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            Place your phone gently on your abdomen, press record, and capture 30–60 seconds of natural gut sounds.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-8 flex items-start space-x-6">
+                    <div class="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-ai-cyan to-ai-neon rounded-2xl flex items-center justify-center text-ai-dark font-bold text-xl shadow-lg shadow-ai-cyan/30">
+                        2
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-3 text-white">Tag how you feel</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            Add a quick note: stress level, mood, what you last ate, and any gut sensations (butterflies, heaviness, cramping, gurgling, etc.).
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card p-8 flex items-start space-x-6">
+                    <div class="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-ai-cyan to-ai-neon rounded-2xl flex items-center justify-center text-ai-dark font-bold text-xl shadow-lg shadow-ai-cyan/30">
+                        3
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-3 text-white">Review gentle patterns over time</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            The app highlights simple trends so you can start connecting the dots between what you feel, what your gut sounds like, and how your days are structured.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-12 text-center">
+                <p class="text-ai-grey/60 text-sm italic max-w-2xl mx-auto">
+                    The first version will focus on personal awareness and journalling. Future phases may explore research collaborations and clinician-facing tools.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Who It's For Section -->
+    <section id="who-its-for" class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-5xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">AUDIENCE /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-4 text-white">
+                    Who It's For
+                </h2>
+            </div>
+
+            <div class="space-y-6">
+                <div class="glass-card flex items-start space-x-5 p-10">
+                    <div class="audience-icon">01</div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-3 text-white">People navigating ongoing gut challenges</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            Living with Crohn's, IBD, IBS, post-surgical changes, or unexplained gut symptoms can be confusing and isolating. NeuroGut Acoustics™ helps you observe your own gut patterns in a way that feels concrete—not just "in your head".
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card flex items-start space-x-5 p-10">
+                    <div class="audience-icon">02</div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-3 text-white">People who feel everything in their gut</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            If you're someone who "holds stress in their stomach", gets butterflies easily, or feels emotions strongly in their gut, this app is designed to help you make sense of that mind–body connection.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card flex items-start space-x-5 p-10">
+                    <div class="audience-icon">03</div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-3 text-white">Clinicians, researchers, and innovation partners</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            We're exploring how non-invasive gut acoustics and patient-reported data could support future research, digital health tools, and chronic condition self-management.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Why This Is Different Section -->
+    <section class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-5xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">DIFFERENTIATORS /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-4 text-white">
+                    Why NeuroGut Acoustics™ Is Different
+                </h2>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="glass-card flex items-start space-x-4 p-8">
+                    <div class="text-3xl text-ai-neon flex-shrink-0 mt-1">✓</div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Non-invasive sound capture</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            No special hardware—just your phone and a quiet moment.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card flex items-start space-x-4 p-8">
+                    <div class="text-3xl text-ai-neon flex-shrink-0 mt-1">✓</div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Mind–body patterns, not just metrics</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            Combines gut acoustics with stress, sleep, meals, and emotional state.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card flex items-start space-x-4 p-8">
+                    <div class="text-3xl text-ai-neon flex-shrink-0 mt-1">✓</div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Lived experience + clinical background</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            Built by a founder with 15+ years in patient-facing care and long-term experience with complex gut conditions.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="glass-card flex items-start space-x-4 p-8">
+                    <div class="text-3xl text-ai-neon flex-shrink-0 mt-1">✓</div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-3 text-white">Designed to complement care</h3>
+                        <p class="text-ai-grey leading-relaxed">
+                            A self-awareness tool meant to sit alongside professional medical guidance, not replace it.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- For Partners & Innovators Section -->
+    <section id="partners" class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">PARTNERSHIPS /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-4 text-white">
+                    For Partners & Innovators
+                </h2>
+                <p class="text-lg text-ai-grey">
+                    Open to research collaboration and innovation partnerships
+                </p>
+            </div>
+
+            <div class="glass-card p-10 md:p-14">
+                <p class="text-ai-grey mb-8 leading-relaxed text-lg">
+                    NeuroGut Acoustics™ sits at the intersection of gut–brain science, digital health, and accessible bio-acoustic sensing. We're currently based on the Gold Coast and actively exploring collaboration with:
+                </p>
+
+                <ul class="space-y-5 mb-10">
+                    <li class="flex items-start space-x-4">
+                        <span class="text-ai-cyan font-bold flex-shrink-0 text-2xl mt-1">→</span>
+                        <span class="text-ai-grey leading-relaxed">Health-tech accelerators and hubs (including <strong class="text-white">LuminaX</strong> and the <strong class="text-white">Gold Coast Health & Knowledge Precinct</strong>)</span>
+                    </li>
+                    <li class="flex items-start space-x-4">
+                        <span class="text-ai-cyan font-bold flex-shrink-0 text-2xl mt-1">→</span>
+                        <span class="text-ai-grey leading-relaxed">University-based research teams interested in GI acoustics and autonomic nervous system dynamics</span>
+                    </li>
+                    <li class="flex items-start space-x-4">
+                        <span class="text-ai-cyan font-bold flex-shrink-0 text-2xl mt-1">→</span>
+                        <span class="text-ai-grey leading-relaxed">Clinicians and services supporting Crohn's, IBD, IBS, post-surgical patients, and functional gut disorders</span>
+                    </li>
+                    <li class="flex items-start space-x-4">
+                        <span class="text-ai-cyan font-bold flex-shrink-0 text-2xl mt-1">→</span>
+                        <span class="text-ai-grey leading-relaxed">Data scientists exploring pattern recognition and non-invasive signal analysis in real-world settings</span>
+                    </li>
+                </ul>
+
+                <p class="text-ai-grey/70 text-sm mb-10 leading-relaxed">
+                    If you're interested in exploring pilots, feasibility studies, or co-designing future clinical tools, we'd love to connect.
+                </p>
+
+                <div class="text-center">
+                    <a href="#contact" class="btn-primary inline-block font-semibold px-10 py-5 rounded-xl">
+                        <span>Let's Connect</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About the Founder Section -->
+    <section class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-20">
+                <div class="section-label text-center mb-4">FOUNDER /</div>
+                <div class="accent-line"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-4 text-white">
+                    About the Founder
+                </h2>
+            </div>
+
+            <div class="bg-bg-light p-8 md:p-12 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-center mb-6">
+                    <img src="images/dr-michael.jpg"
+                         alt="Dr. Michael Bishopp - Founder"
+                         class="w-32 h-32 rounded-full object-cover border-4 border-accent-teal/20">
+                </div>
+
+                <h3 class="text-3xl font-display font-semibold text-center mb-8 text-white">Dr. Michael Bishopp</h3>
+                <p class="text-ai-grey leading-relaxed mb-6 text-lg">
+                    NeuroGut Acoustics™ is led by <strong class="text-white">Dr. Michael Bishopp</strong>, a Gold Coast–based clinician and health founder with 15+ years of patient‑facing experience across clinic systems and care delivery.
+                </p>
+                <p class="text-ai-grey leading-relaxed text-lg">
+                    After his own gut surgery and a long recovery journey, Dr. Bishopp dedicated his clinical practice to the gut–brain axis and built NeuroGut as a wellness tool that makes autonomic signals observable at home—turning lived experience into practical, actionable insight.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact / Stay Updated Section -->
+    <section id="contact" class="py-24 px-6 md:py-40 relative z-10">
+        <div class="max-w-3xl mx-auto">
+            <div class="text-center mb-16">
+                <div class="section-label text-center mb-4">CONTACT /</div>
+                <div class="accent-line mx-auto"></div>
+                <h2 class="text-4xl md:text-5xl font-display font-bold mb-6 text-white">
+                    Stay Updated
+                </h2>
+                <p class="text-lg text-ai-grey">
+                    Interested in following the project, collaborating, or exploring research and innovation partnerships?
+                </p>
+            </div>
+
+            <!-- Contact Form (Front-end only - no backend) -->
+            <div class="glass-card p-10 md:p-12">
+                <form id="contactForm" class="space-y-6">
+                    <div>
+                        <label for="name" class="block text-sm font-medium mb-2 text-ai-grey">Name</label>
+                        <input
+                            type="text"
+                            id="name"
+                            name="name"
+                            required
+                            class="w-full px-4 py-3 rounded-xl bg-ai-darker/50 text-white border border-ai-grey/20 placeholder-ai-grey/50 focus:outline-none focus:ring-2 focus:ring-ai-cyan focus:border-transparent transition-all"
+                            placeholder="Your name"
+                        >
+                    </div>
+
+                    <div>
+                        <label for="email" class="block text-sm font-medium mb-2 text-ai-grey">Email</label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            required
+                            class="w-full px-4 py-3 rounded-xl bg-ai-darker/50 text-white border border-ai-grey/20 placeholder-ai-grey/50 focus:outline-none focus:ring-2 focus:ring-ai-cyan focus:border-transparent transition-all"
+                            placeholder="your@email.com"
+                        >
+                    </div>
+
+                    <div>
+                        <label for="role" class="block text-sm font-medium mb-2 text-ai-grey">I'm a...</label>
+                        <select
+                            id="role"
+                            name="role"
+                            required
+                            class="w-full px-4 py-3 rounded-xl bg-ai-darker/50 text-white border border-ai-grey/20 focus:outline-none focus:ring-2 focus:ring-ai-cyan focus:border-transparent transition-all"
+                        >
+                            <option value="">Select one...</option>
+                            <option value="individual">Individual with gut challenges</option>
+                            <option value="parent">Parent/Caregiver</option>
+                            <option value="clinician">Clinician</option>
+                            <option value="researcher">Researcher</option>
+                            <option value="investor">Investor/Partner</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="message" class="block text-sm font-medium mb-2 text-ai-grey">Message (optional)</label>
+                        <textarea
+                            id="message"
+                            name="message"
+                            rows="4"
+                            class="w-full px-4 py-3 rounded-xl bg-ai-darker/50 text-white border border-ai-grey/20 placeholder-ai-grey/50 focus:outline-none focus:ring-2 focus:ring-ai-cyan focus:border-transparent transition-all resize-none"
+                            placeholder="Tell us a bit about your interest..."
+                        ></textarea>
+                    </div>
+
+                    <div class="text-center">
+                        <button
+                            type="submit"
+                            class="btn-primary font-semibold px-10 py-5 rounded-xl"
+                        >
+                            <span>Send Message</span>
+                        </button>
+                    </div>
+
+                    <p class="text-sm text-center text-ai-grey/70 mt-6 leading-relaxed">
+                        For partnership, investment, or media enquiries: <a href="mailto:hello@neurogutai.com" class="text-ai-cyan hover:text-ai-neon underline font-semibold transition-colors">hello@neurogutai.com</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-ai-darker/80 text-ai-grey py-16 px-6 relative z-10 border-t border-ai-grey/10">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-10">
+                <h3 class="text-3xl font-display font-bold text-white mb-3 bg-clip-text text-transparent bg-gradient-to-r from-ai-cyan via-ai-neon to-ai-purple">NeuroGut Acoustics™</h3>
+                <p class="text-ai-grey text-sm">Non-invasive GI sound insights and gut–brain awareness</p>
+            </div>
+
+            <!-- Disclaimer -->
+            <div class="glass-card p-8 mb-10 max-w-4xl mx-auto border-ai-grey/10">
+                <p class="text-sm text-ai-grey leading-relaxed">
+                    <strong class="text-white">Important Notice:</strong> NeuroGut Acoustics™ is currently in development. It does not diagnose, treat, cure, or prevent any disease and is not a substitute for professional medical advice, diagnosis, or care. Always consult with qualified healthcare professionals regarding any health concerns or before making changes to your care routine.
+                </p>
+            </div>
+
+            <div class="text-center text-sm text-ai-grey/60">
+                <p>&copy; 2025 NeuroGut Acoustics™. All rights reserved.</p>
+                <p class="mt-2">Built with care on the Gold Coast, Australia 🇦🇺</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- NeuroGut Audio Processor (Hardened 450Hz Logic) -->
+    <script src="audioProcessor.js"></script>
+
+    <!-- JavaScript for form handling and smooth interactions -->
+    <script>
+        // ============================================
+        // PREMIUM NOTIFICATION SYSTEM
+        // ============================================
+
+        // SVG Icons for notifications
+        const NotificationIcons = {
+            success: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M7 10L9 12L13 8M19 10C19 14.9706 14.9706 19 10 19C5.02944 19 1 14.9706 1 10C1 5.02944 5.02944 1 10 1C14.9706 1 19 5.02944 19 10Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`,
+            info: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10 14V10M10 6H10.01M19 10C19 14.9706 14.9706 19 10 19C5.02944 19 1 14.9706 1 10C1 5.02944 5.02944 1 10 1C14.9706 1 19 5.02944 19 10Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`,
+            warning: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10 7V11M10 14H10.01M19 10C19 14.9706 14.9706 19 10 19C5.02944 19 1 14.9706 1 10C1 5.02944 5.02944 1 10 1C14.9706 1 19 5.02944 19 10Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`,
+            error: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10 7V11M10 14H10.01M4.93 4.93L15.07 15.07M15.07 4.93L4.93 15.07" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`
+        };
+
+        // Notification class
+        class NotificationSystem {
+            constructor() {
+                this.container = document.getElementById('notification-container');
+                this.notifications = [];
+            }
+
+            show(type, title, message, duration = 5000) {
+                // Create notification element
+                const notification = document.createElement('div');
+                notification.className = `notification notification-${type}`;
+
+                // Build notification HTML
+                notification.innerHTML = `
+                    <div class="notification-icon">
+                        ${NotificationIcons[type]}
+                    </div>
+                    <div class="notification-content">
+                        <h4 class="notification-title">${title}</h4>
+                        <p class="notification-message">${message}</p>
+                    </div>
+                    <button class="notification-close" aria-label="Close notification">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M13 1L1 13M1 1L13 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <div class="notification-progress">
+                        <div class="notification-progress-bar"></div>
+                    </div>
+                `;
+
+                // Add to container
+                this.container.appendChild(notification);
+                this.notifications.push(notification);
+
+                // Close button handler
+                const closeBtn = notification.querySelector('.notification-close');
+                closeBtn.addEventListener('click', () => this.dismiss(notification));
+
+                // Auto-dismiss
+                if (duration > 0) {
+                    setTimeout(() => this.dismiss(notification), duration);
+                }
+
+                return notification;
+            }
+
+            dismiss(notification) {
+                if (!notification || !notification.parentElement) return;
+
+                // Add exit animation
+                notification.style.animation = 'notificationSlideOut 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.remove();
+                        this.notifications = this.notifications.filter(n => n !== notification);
+                    }
+                }, 300);
+            }
+
+            success(title, message, duration) {
+                return this.show('success', title, message, duration);
+            }
+
+            info(title, message, duration) {
+                return this.show('info', title, message, duration);
+            }
+
+            warning(title, message, duration) {
+                return this.show('warning', title, message, duration);
+            }
+
+            error(title, message, duration) {
+                return this.show('error', title, message, duration);
+            }
+
+            clearAll() {
+                this.notifications.forEach(notification => this.dismiss(notification));
+            }
+        }
+
+        // Initialize notification system
+        const notify = new NotificationSystem();
+
+        // Make it globally accessible
+        window.notify = notify;
+
+        // ============================================
+        // FORM HANDLER
+        // ============================================
+
+        // Form submission handler
+        document.getElementById('contactForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const name = document.getElementById('name').value;
+            const email = document.getElementById('email').value;
+            const role = document.getElementById('role').value;
+            const message = document.getElementById('message').value;
+
+            // In production, this would send to a backend API
+            // For now, we show a premium notification
+            notify.success(
+                'Thank you for your interest!',
+                `Thanks ${name}! Since this form isn't connected to a backend yet, please email us directly at hello@neurogutai.com`,
+                6000
+            );
+
+            // Optional: Log to console for testing
+            console.log('Form Data:', { name, email, role, message });
+
+            // Reset form
+            this.reset();
+        });
+
+        // Add smooth scroll behavior for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Add entrance animations on scroll (optional enhancement)
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        // Observe all sections for fade-in effect
+        document.querySelectorAll('section').forEach(section => {
+            section.style.opacity = '0';
+            section.style.transform = 'translateY(20px)';
+            section.style.transition = 'opacity 0.6s ease-out, transform 0.6s ease-out';
+            observer.observe(section);
+        });
+
+        // ============================================
+        // MOBILE MENU TOGGLE
+        // ============================================
+
+        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+        const mobileMenu = document.getElementById('mobile-menu');
+
+        mobileMenuBtn?.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+
+        // Close mobile menu when clicking a link
+        mobileMenu?.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', () => {
+                mobileMenu.classList.add('hidden');
+            });
+        });
+
+        // ============================================
+        // NAVBAR SCROLL EFFECT
+        // ============================================
+
+        const navbar = document.getElementById('main-nav');
+        let lastScroll = 0;
+
+        window.addEventListener('scroll', () => {
+            const currentScroll = window.pageYOffset;
+
+            if (currentScroll > 100) {
+                navbar.style.background = 'rgba(2, 6, 23, 0.95)';
+                navbar.style.boxShadow = '0 4px 30px rgba(0, 0, 0, 0.3)';
+            } else {
+                navbar.style.background = 'rgba(2, 6, 23, 0.8)';
+                navbar.style.boxShadow = 'none';
+            }
+
+            lastScroll = currentScroll;
+        });
+
+        // ============================================
+        // VIDEO PLAY WITH SOUND
+        // ============================================
+
+        const demoVideo = document.getElementById('demo-video');
+        const videoOverlay = document.getElementById('video-play-overlay');
+
+        if (demoVideo && videoOverlay) {
+            // Load first frame as thumbnail
+            demoVideo.addEventListener('loadeddata', () => {
+                demoVideo.currentTime = 0.5; // Show frame at 0.5 seconds
+            });
+
+            // Click overlay to play with sound
+            videoOverlay.addEventListener('click', () => {
+                demoVideo.currentTime = 0; // Start from beginning
+                videoOverlay.style.opacity = '0';
+                setTimeout(() => {
+                    videoOverlay.style.display = 'none';
+                }, 300);
+                demoVideo.play();
+            });
+
+            // Also hide overlay if user clicks video directly
+            demoVideo.addEventListener('play', () => {
+                videoOverlay.style.opacity = '0';
+                setTimeout(() => {
+                    videoOverlay.style.display = 'none';
+                }, 300);
+            });
+        }
+    </script>
+</body>
+</html>

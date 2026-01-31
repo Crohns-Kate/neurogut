@@ -50,3 +50,14 @@ yarn-error.*
 # local tooling and assets (not for repo)
 local-video-promo-generator/
 pitch-assets/
+
+# Vercel
+.vercel/
+website/.vercel/
+website/.env.local
+
+# Video generator build artifacts
+video-generator/node_modules/
+video-generator/out/
+video-generator/build/
+video-generator/.env

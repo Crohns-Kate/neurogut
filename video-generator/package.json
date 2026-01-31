@@ -1,0 +1,39 @@
+{
+  "name": "neurogut-demo",
+  "version": "1.0.0",
+  "description": "Neurogut app product demo video",
+  "main": "index.js",
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "render": "remotion render NeurogutDemo out/neurogut-demo.mp4",
+    "generate-voiceover": "tsx src/scripts/generate-voiceover.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@remotion/cli": "^4.0.409",
+    "@remotion/lottie": "^4.0.409",
+    "@remotion/media": "4.0.409",
+    "@remotion/player": "^4.0.409",
+    "@types/node": "^25.0.10",
+    "@vitejs/plugin-react": "^5.1.2",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^17.2.3",
+    "postcss": "^8.4.47",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.409",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.21.0",
+    "vite": "^7.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}
