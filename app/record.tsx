@@ -34,7 +34,8 @@ import {
   VAGAL_INTERVENTION_OPTIONS,
 } from "../src/models/session";
 import { addSession, updateSessionAnalytics } from "../src/storage/sessionStore";
-import { generatePlaceholderAnalytics } from "../src/analytics/audioAnalytics";
+import { analyzeAudioSamples } from "../src/analytics/audioAnalytics";
+import { extractAudioSamples } from "../src/utils/audioExtractor";
 import AnatomicalMirror from "../components/AnatomicalMirror";
 import PlacementGuide from "../components/PlacementGuide";
 import VagalPrimer from "../components/VagalPrimer";
@@ -1363,13 +1364,43 @@ export default function GutSoundRecordingScreen() {
         await addSession(session);
 
         // Generate analytics for the session
-        // ACCELEROMETER GATE: If phone was on table (flat + still), return zero events
+        // Extract audio samples and run full analysis pipeline
         console.log('\n========================================');
-        console.log('=== ANALYTICS GENERATION ===');
+        console.log('=== AUDIO ANALYSIS PIPELINE ===');
         console.log('contactResult.noContact:', contactResult.noContact);
+        console.log('contactResult.varianceInBodyRange:', contactResult.varianceInBodyRange);
+        console.log('contactResult.rejectionReason:', contactResult.rejectionReason);
+
         let analytics;
-        if (contactResult.noContact) {
-          console.log('>>> ACCELEROMETER GATE ACTIVE: Returning 0 events');
+        try {
+          // Extract audio samples from the recording
+          const samples = await extractAudioSamples(targetUri, durationSeconds, 44100);
+          console.log(`Extracted ${samples.length} samples for analysis`);
+
+          // Run full audio analysis with accelerometer result
+          analytics = analyzeAudioSamples(samples, durationSeconds, 44100, {
+            applyBirdFilter: true,
+            isHummingPhase: false,
+            accelerometerResult: {
+              noContact: contactResult.noContact,
+              varianceInBodyRange: contactResult.varianceInBodyRange,
+              rejectionReason: contactResult.rejectionReason,
+              totalVariance: contactResult.totalVariance,
+              confidence: contactResult.confidence,
+            },
+          });
+
+          console.log('=== ANALYSIS COMPLETE ===');
+          console.log('eventsPerMinute:', analytics.eventsPerMinute);
+          console.log('motilityIndex:', analytics.motilityIndex);
+          console.log('heartBpm:', analytics.heartBpm);
+          console.log('heartRmssd:', analytics.heartRmssd);
+          console.log('vagalToneScore:', analytics.vagalToneScore);
+          console.log('heartBeatCount:', analytics.heartBeatCount);
+          console.log('heartConfidence:', analytics.heartConfidence);
+        } catch (error) {
+          console.error('Audio analysis failed:', error);
+          // Fallback to zero analytics on error
           analytics = {
             eventsPerMinute: 0,
             totalActiveSeconds: 0,
@@ -1378,16 +1409,7 @@ export default function GutSoundRecordingScreen() {
             activityTimeline: new Array(10).fill(0),
             timelineSegments: 10,
           };
-        } else {
-          // TODO: In the future, implement proper audio sample extraction
-          // For now, we use placeholder analytics that simulate realistic values
-          console.log('>>> ACCELEROMETER GATE PASSED: Generating placeholder analytics');
-          analytics = generatePlaceholderAnalytics(durationSeconds);
-          console.log('Placeholder analytics:', analytics.eventsPerMinute, 'events/min');
         }
-        console.log('=== FINAL ANALYTICS ===');
-        console.log('eventsPerMinute:', analytics.eventsPerMinute);
-        console.log('motilityIndex:', analytics.motilityIndex);
         console.log('========================================\n');
         await updateSessionAnalytics(session.id, analytics);
 
