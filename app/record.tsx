@@ -63,8 +63,10 @@ import {
   startAccelerometerMonitoring,
   stopAccelerometerMonitoring,
   analyzeAccelerometerContact,
+  getAccelerometerSamples,
   ContactDetectionResult,
 } from "../src/sensors/accelerometerContact";
+import { analyzeBreathPhases } from "../src/analytics/breathingAnalysis";
 
 type SavedRecording = {
   id: string;
@@ -1414,7 +1416,7 @@ export default function GutSoundRecordingScreen() {
             },
           });
 
-          console.log('=== ANALYSIS COMPLETE ===');
+          console.log('=== AUDIO ANALYSIS COMPLETE ===');
           console.log('eventsPerMinute:', analytics.eventsPerMinute);
           console.log('motilityIndex:', analytics.motilityIndex);
           console.log('heartBpm:', analytics.heartBpm);
@@ -1422,6 +1424,23 @@ export default function GutSoundRecordingScreen() {
           console.log('vagalToneScore:', analytics.vagalToneScore);
           console.log('heartBeatCount:', analytics.heartBeatCount);
           console.log('heartConfidence:', analytics.heartConfidence);
+
+          // Run breathing analysis on accelerometer data
+          const accelSamples = getAccelerometerSamples();
+          if (accelSamples.length > 0) {
+            const breathingAnalysis = analyzeBreathPhases(accelSamples, 20);
+
+            // Merge breathing metrics into analytics
+            if (breathingAnalysis.cycles.length >= 3) {
+              analytics.breathsPerMinute = breathingAnalysis.breathsPerMinute;
+              analytics.avgInhaleDurationMs = breathingAnalysis.averageInhaleDuration;
+              analytics.avgExhaleDurationMs = breathingAnalysis.averageExhaleDuration;
+              analytics.inhaleExhaleRatio = breathingAnalysis.inhaleExhaleRatio;
+              analytics.breathingCoherence = breathingAnalysis.coherence;
+              analytics.breathingPattern = breathingAnalysis.pattern;
+              analytics.breathCycleCount = breathingAnalysis.cycles.length;
+            }
+          }
         } catch (error) {
           console.error('Audio analysis failed:', error);
           // Fallback to zero analytics on error

@@ -257,6 +257,32 @@ export interface SessionAnalytics {
 
   /** Confidence in heart rate measurement (0-1) */
   heartConfidence?: number;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // BREATHING ANALYTICS (from Accelerometer)
+  // Detected from abdominal motion during recording
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  /** Breaths per minute detected from accelerometer */
+  breathsPerMinute?: number;
+
+  /** Average inhale duration in ms */
+  avgInhaleDurationMs?: number;
+
+  /** Average exhale duration in ms */
+  avgExhaleDurationMs?: number;
+
+  /** Inhale:Exhale ratio (< 1 means exhale is longer) */
+  inhaleExhaleRatio?: number;
+
+  /** Breathing coherence score 0-100 */
+  breathingCoherence?: number;
+
+  /** Breathing pattern classification */
+  breathingPattern?: "regular" | "irregular" | "shallow" | "deep";
+
+  /** Number of breath cycles detected */
+  breathCycleCount?: number;
 }
 
 // State of Mind before recording

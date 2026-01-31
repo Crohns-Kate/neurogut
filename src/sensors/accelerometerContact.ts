@@ -426,3 +426,12 @@ export function analyzeAccelerometerContact(): ContactDetectionResult {
   const detector = getAccelerometerDetector();
   return detector.analyze();
 }
+
+/**
+ * Get raw accelerometer samples for breathing analysis
+ * Returns all collected samples with timestamps
+ */
+export function getAccelerometerSamples(): AccelerometerSample[] {
+  const detector = getAccelerometerDetector();
+  return detector.getSamples();
+}
