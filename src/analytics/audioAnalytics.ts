@@ -3467,12 +3467,22 @@ export function analyzeAudioSamples(
   const activeFraction = totalWindows > 0 ? activeWindows / totalWindows : 0;
 
   // NG-HARDEN-05: Get signal quality from ANF calibration
-  const signalQuality: SignalQuality = anfCalibrationResult.signalQuality;
+  let signalQuality: SignalQuality = anfCalibrationResult.signalQuality;
   const snrDb = anfCalibrationResult.estimatedSNR;
+
+  // Override "poor" signal quality when accelerometer confirms body contact
+  // The accelerometer is our source of truth for body contact
+  // If it says we're on the body, trust the detected events
+  if (signalQuality === "poor" && accelerometerConfirmedContact) {
+    console.log(`[OVERRIDE] Signal quality "poor" -> "fair" (accelerometer confirmed contact)`);
+    signalQuality = "fair";
+  }
+
   const isReliable = signalQuality !== "poor";
 
   // Calculate Motility Index (weighted by signal quality)
   const motilityIndex = calculateMotilityIndex(eventsPerMinute, activeFraction, signalQuality);
+  console.log(`[MotilityIndex] eventsPerMinute=${eventsPerMinute.toFixed(1)}, signalQuality=${signalQuality}, result=${motilityIndex}`);
 
   // Create activity timeline
   const activityTimeline = createActivityTimeline(
