@@ -237,6 +237,26 @@ export interface SessionAnalytics {
   /** Mean spectral centroid of detected events (Hz)
    *  Healthy gut sounds typically have centroid 150-350 Hz */
   meanSpectralCentroid?: number;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // HEART RATE ANALYTICS (20-80Hz Band)
+  // Extracted from same abdominal recording as gut sounds
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  /** Heart rate in BPM (extracted from 20-80Hz band) */
+  heartBpm?: number;
+
+  /** HRV metric: Root Mean Square of Successive Differences (ms) */
+  heartRmssd?: number;
+
+  /** Simplified vagal tone score (0-100) based on RMSSD */
+  vagalToneScore?: number;
+
+  /** Number of heartbeats detected in recording */
+  heartBeatCount?: number;
+
+  /** Confidence in heart rate measurement (0-1) */
+  heartConfidence?: number;
 }
 
 // State of Mind before recording

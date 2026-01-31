@@ -36,6 +36,7 @@ import {
   getClinicalButterworthFilter,
   applyZeroPhaseFilter,
 } from "../filters/butterworthFilter";
+import { analyzeHeartRate, type HeartAnalytics } from "./heartAnalytics";
 
 // Configuration for event detection
 const CONFIG = {
@@ -3372,6 +3373,13 @@ export function analyzeAudioSamples(
   // PFHS calculation is done in scoringEngine, but we store the histogram here
   const pfhsScore = computePFHSInline(frequencyHistogram, peakFrequencies);
 
+  // ══════════════════════════════════════════════════════════════════════════════
+  // HEART RATE ANALYSIS (20-80Hz Band)
+  // Extract heart rate and HRV from the same abdominal recording
+  // Runs in parallel with gut sound analysis (different frequency band)
+  // ══════════════════════════════════════════════════════════════════════════════
+  const heartAnalytics = analyzeHeartRate(samples, durationSeconds, sampleRate);
+
   return {
     eventsPerMinute: Math.round(eventsPerMinute * 10) / 10,
     totalActiveSeconds: Math.round(totalActiveSeconds),
@@ -3388,6 +3396,12 @@ export function analyzeAudioSamples(
     peakFrequencies,
     pfhsScore,
     meanSpectralCentroid: Math.round(meanSpectralCentroid * 10) / 10,
+    // Heart rate analytics (20-80Hz band)
+    heartBpm: heartAnalytics.confidence >= 0.5 ? heartAnalytics.bpm : undefined,
+    heartRmssd: heartAnalytics.hrvValid ? heartAnalytics.rmssd : undefined,
+    vagalToneScore: heartAnalytics.hrvValid ? heartAnalytics.vagalToneScore : undefined,
+    heartBeatCount: heartAnalytics.beatCount,
+    heartConfidence: heartAnalytics.confidence,
   };
 }
 
