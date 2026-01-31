@@ -41,6 +41,7 @@ import {
 } from "../src/storage/experimentStore";
 import { analyzeAudioSamples } from "../src/analytics/audioAnalytics";
 import { extractAudioSamples, getEffectiveSampleRate } from "../src/utils/audioExtractor";
+import { playChime } from "../src/utils/audioChime";
 import AnatomicalMirror from "../components/AnatomicalMirror";
 import PlacementGuide from "../components/PlacementGuide";
 import VagalPrimer from "../components/VagalPrimer";
@@ -1302,6 +1303,9 @@ export default function GutSoundRecordingScreen() {
       }
 
       setPhase("processing");
+
+      // Play chime to notify user recording is complete
+      playChime();
 
       // Stop accelerometer and analyze contact
       console.log('\n========================================');

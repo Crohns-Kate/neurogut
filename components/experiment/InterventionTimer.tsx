@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { colors, typography, spacing, radius } from "../../styles/theme";
+import { playChime } from "../../src/utils/audioChime";
 
 interface InterventionTimerProps {
   durationSeconds: number;
@@ -51,6 +52,8 @@ export default function InterventionTimer({
         }
         setIsComplete(true);
         setIsActive(false);
+        // Play chime to notify user
+        playChime();
       }
     }, 100);
   }, [durationSeconds]);
