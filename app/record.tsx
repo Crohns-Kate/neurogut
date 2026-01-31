@@ -12,6 +12,7 @@ import {
   Dimensions,
   TextInput,
   Modal,
+  Pressable,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
@@ -594,6 +595,9 @@ export default function GutSoundRecordingScreen() {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [savedRecordings, setSavedRecordings] = useState<SavedRecording[]>([]);
 
+  // Screen lock state (prevents accidental touches during recording)
+  const [isScreenLocked, setIsScreenLocked] = useState(false);
+
   // Playback state
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playbackPosition, setPlaybackPosition] = useState(0);
@@ -740,7 +744,17 @@ export default function GutSoundRecordingScreen() {
       stopRecording();
     }
   }, [recordingDuration, targetDuration, phase]);
-  
+
+  // Auto-lock screen after 3 seconds of recording (time to place phone)
+  useEffect(() => {
+    if (phase === "recording") {
+      const timer = setTimeout(() => setIsScreenLocked(true), 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setIsScreenLocked(false);
+    }
+  }, [phase]);
+
   // ============================================================================
   // MONOTONIC CLOCK SYSTEM for Precision 4-7-8 Breathing
   // Uses Date.now() baseline to prevent setTimeout drift over 5-minute sessions
@@ -2213,6 +2227,38 @@ export default function GutSoundRecordingScreen() {
           </View>
         </View>
       )}
+
+      {/* Screen Lock Overlay - Prevents accidental touches during recording */}
+      {isScreenLocked && phase === "recording" && (
+        <Pressable
+          style={styles.lockOverlay}
+          onLongPress={() => setIsScreenLocked(false)}
+          delayLongPress={2000}
+        >
+          <View style={styles.lockContent}>
+            <Text style={styles.lockIcon}>{"\uD83D\uDD12"}</Text>
+            <Text style={styles.lockText}>Screen Locked</Text>
+            <Text style={styles.lockSubtext}>Long press (2s) to unlock</Text>
+            <Text style={styles.lockTimerText}>
+              {Math.floor(recordingDuration / 60000)}:
+              {Math.floor((recordingDuration % 60000) / 1000)
+                .toString()
+                .padStart(2, "0")}
+            </Text>
+            <View style={styles.lockProgressContainer}>
+              <View
+                style={[
+                  styles.lockProgressBar,
+                  { width: `${progressPercent}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.lockProgressText}>
+              {Math.round(progressPercent)}% complete
+            </Text>
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -3075,5 +3121,56 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: typography.sizes.xl,
     fontWeight: typography.weights.bold,
+  },
+  // Screen Lock Overlay styles
+  lockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#000000",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+  },
+  lockContent: {
+    alignItems: "center",
+    paddingHorizontal: spacing.xl,
+  },
+  lockIcon: {
+    fontSize: 48,
+    marginBottom: spacing.lg,
+  },
+  lockText: {
+    color: colors.textPrimary,
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold,
+    marginBottom: spacing.sm,
+  },
+  lockSubtext: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
+    marginBottom: spacing["3xl"],
+  },
+  lockTimerText: {
+    color: colors.success,
+    fontSize: 64,
+    fontWeight: typography.weights.bold,
+    fontVariant: ["tabular-nums"],
+    marginBottom: spacing.xl,
+  },
+  lockProgressContainer: {
+    width: 200,
+    height: 8,
+    backgroundColor: colors.backgroundCard,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+  },
+  lockProgressBar: {
+    height: "100%",
+    backgroundColor: colors.accent,
+    borderRadius: 4,
+  },
+  lockProgressText: {
+    color: colors.textMuted,
+    fontSize: typography.sizes.sm,
   },
 });

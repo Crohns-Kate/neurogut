@@ -39,6 +39,7 @@ import {
 } from "../../src/logic/scoringEngine";
 import { getActivePatientId } from "../../src/storage/patientStore";
 import { Alert } from "react-native";
+import ResultsDashboard from "../../components/results/ResultsDashboard";
 
 // Motility badge component
 function MotilityBadge({
@@ -324,6 +325,16 @@ export default function SessionDetailScreen() {
         <Text style={styles.dateText}>{formatDate(session.createdAt)}</Text>
         <Text style={styles.timeText}>{formatTime(session.createdAt)}</Text>
       </View>
+
+      {/* Gut-Brain Snapshot Dashboard */}
+      {analytics && (
+        <View style={styles.dashboardSection}>
+          <ResultsDashboard
+            analytics={analytics}
+            date={session.createdAt}
+          />
+        </View>
+      )}
 
       {/* Vagal Readiness Score - PRIMARY DISPLAY */}
       {vagalScore && (
@@ -629,6 +640,14 @@ const styles = StyleSheet.create({
   // Header
   header: {
     marginBottom: spacing.xl,
+  },
+  // Dashboard
+  dashboardSection: {
+    marginBottom: spacing.xl,
+    backgroundColor: colors.backgroundElevated,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    marginHorizontal: -spacing.sm,
   },
   protocolBadge: {
     alignSelf: "flex-start",
