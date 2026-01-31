@@ -308,6 +308,21 @@ export default function GuidedCheckInScreen() {
             <Text style={styles.quickActionLabel}>Protocol</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Before/After Comparison */}
+        <TouchableOpacity
+          style={styles.compareButton}
+          onPress={() => router.push("/experiment")}
+        >
+          <Text style={styles.compareButtonIcon}>🔬</Text>
+          <View style={styles.compareButtonText}>
+            <Text style={styles.compareButtonTitle}>Compare Before/After</Text>
+            <Text style={styles.compareButtonSubtitle}>
+              Measure the effect of an intervention
+            </Text>
+          </View>
+          <Text style={styles.compareButtonArrow}>›</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Patient Selector */}
@@ -706,6 +721,39 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
+  },
+
+  // Compare Button
+  compareButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.backgroundCard,
+    borderRadius: radius.lg,
+    padding: spacing.base,
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  compareButtonIcon: {
+    fontSize: 24,
+    marginRight: spacing.md,
+  },
+  compareButtonText: {
+    flex: 1,
+  },
+  compareButtonTitle: {
+    fontSize: typography.sizes.base,
+    fontWeight: typography.weights.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  compareButtonSubtitle: {
+    fontSize: typography.sizes.xs,
+    color: colors.textMuted,
+  },
+  compareButtonArrow: {
+    fontSize: typography.sizes.xl,
+    color: colors.textMuted,
   },
 
   // Patient Selector

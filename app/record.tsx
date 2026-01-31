@@ -13,7 +13,7 @@ import {
   TextInput,
   Modal,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import * as Speech from "expo-speech";
 import * as FileSystem from "expo-file-system/legacy";
@@ -33,7 +33,12 @@ import {
   VagalIntervention,
   VAGAL_INTERVENTION_OPTIONS,
 } from "../src/models/session";
-import { addSession, updateSessionAnalytics } from "../src/storage/sessionStore";
+import { addSession, updateSessionAnalytics, getSession } from "../src/storage/sessionStore";
+import {
+  getExperiment,
+  completeBaseline,
+  completePost,
+} from "../src/storage/experimentStore";
 import { analyzeAudioSamples } from "../src/analytics/audioAnalytics";
 import { extractAudioSamples, getEffectiveSampleRate } from "../src/utils/audioExtractor";
 import AnatomicalMirror from "../components/AnatomicalMirror";
@@ -512,6 +517,14 @@ function InterventionSelector({
 
 export default function GutSoundRecordingScreen() {
   const router = useRouter();
+  // Experiment flow params (for before/after comparison)
+  const params = useLocalSearchParams<{
+    experimentId?: string;
+    phase?: "before" | "after";
+  }>();
+  const experimentId = params.experimentId;
+  const experimentPhase = params.phase;
+
   const [permissionStatus, setPermissionStatus] = useState<
     "undetermined" | "granted" | "denied"
   >("undetermined");
@@ -1361,6 +1374,12 @@ export default function GutSoundRecordingScreen() {
           session.guidedIntervention = true;
         }
 
+        // Link session to experiment if part of before/after comparison
+        if (experimentId && experimentPhase) {
+          session.experimentPairingId = experimentId;
+          session.mindBodyPhase = experimentPhase;
+        }
+
         await addSession(session);
 
         // Generate analytics for the session
@@ -1425,7 +1444,35 @@ export default function GutSoundRecordingScreen() {
 
         setSavedRecordings((prev) => [newItem, ...prev]);
 
-        // Navigate to session detail to show results
+        // Handle experiment flow navigation
+        if (experimentId && experimentPhase) {
+          try {
+            if (experimentPhase === "before") {
+              // Baseline recording complete - update experiment and go to intervention
+              await completeBaseline(experimentId, session.id, analytics);
+              setPhase("setup");
+              router.push({
+                pathname: "/experiment/intervention",
+                params: { experimentId },
+              });
+              return;
+            } else if (experimentPhase === "after") {
+              // Post recording complete - calculate deltas and show comparison
+              await completePost(experimentId, session.id, analytics);
+              setPhase("setup");
+              router.push({
+                pathname: "/experiment/compare",
+                params: { experimentId },
+              });
+              return;
+            }
+          } catch (error) {
+            console.error("Error updating experiment:", error);
+            // Fall through to normal navigation on error
+          }
+        }
+
+        // Navigate to session detail to show results (normal flow)
         setPhase("setup");
         router.push(`/session/${session.id}`);
         return;
