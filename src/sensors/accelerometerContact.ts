@@ -1,18 +1,20 @@
 /**
  * Accelerometer Contact Detection
  *
- * PRIMARY gate for gut sound detection - if phone is flat and still (table),
- * reject ALL audio events regardless of audio analysis.
+ * PRIMARY gate for gut sound detection using VARIANCE-ONLY detection.
+ * Body contact has ONE reliable signature: breathing micro-motion.
  *
- * Physics:
- * - Phone flat on table: Z ≈ ±9.8 m/s², X ≈ 0, Y ≈ 0
- * - Phone on body: Z varies (angled), micro-movements present
- * - Gravity = 9.8 m/s², so |Z| > 9.5 means nearly perpendicular to ground
+ * Key insight: Tilt (Z value) fails for tilted phone on table/pillow.
+ * Variance is the only reliable discriminator.
+ *
+ * Empirical data:
+ * - Table: variance ~0.000004 (dead still - no breathing)
+ * - Abdomen: variance ~0.00008 (breathing = 20x higher)
+ * - Walking: variance ~0.01+ (too unstable for recording)
  *
  * Detection:
- * - isFlat: abs(avgZ) > 9.5 (phone horizontal)
- * - isStill: variance < 0.002 (no micro-motion)
- * - noContact = isFlat AND isStill
+ * - varianceInBodyRange = MIN_VARIANCE <= variance <= MAX_VARIANCE
+ * - noContact = !varianceInBodyRange
  */
 
 import { Accelerometer, AccelerometerMeasurement } from 'expo-sensors';
@@ -37,20 +39,21 @@ export const ACCELEROMETER_CONFIG = {
   // Minimum settled samples needed (at least 5 seconds of settled data)
   minSettledSamples: 100,
 
-  // FLAT DETECTION
-  // Phone flat on table: Z magnitude close to 1G (Expo returns G-force, not m/s²)
-  // Threshold: if |avgZ| > 0.95, phone is nearly horizontal
-  flatZThreshold: 0.95,
+  // ════════════════════════════════════════════════════════════════════════════════
+  // VARIANCE-ONLY BODY CONTACT DETECTION
+  // Breathing micro-motion is the only reliable signature of body contact.
+  // Tilt (Z value) is NOT used - fails for tilted phone on table/pillow.
+  // ════════════════════════════════════════════════════════════════════════════════
 
-  // STILLNESS DETECTION
-  // Phone on table has very low variance (no micro-movements)
-  // Body has constant micro-tremors from breathing, heartbeat, muscle tone
-  // Threshold: if totalVariance < 0.002, phone is unnaturally still
-  stillnessVarianceThreshold: 0.002,
+  // MINIMUM variance for body contact
+  // Below this = no breathing detected = phone on table/pillow
+  // Empirical: table ~0.000004, abdomen ~0.00008
+  minVarianceForBody: 0.00003,
 
-  // Additional: X and Y should be near zero if truly flat
-  // (tilted phones have significant X/Y components)
-  flatXYThreshold: 0.15, // G-force - allow some tilt tolerance
+  // MAXIMUM variance for valid recording
+  // Above this = too much motion = walking/unstable
+  // Empirical: walking ~0.01+
+  maxVarianceForBody: 0.005,
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -68,29 +71,35 @@ export interface ContactDetectionResult {
   /** Is the phone likely NOT in contact with body? */
   noContact: boolean;
 
-  /** Is the phone lying flat (horizontal)? */
-  isFlat: boolean;
+  /** Is variance in the body contact range? (has breathing micro-motion) */
+  varianceInBodyRange: boolean;
 
-  /** Is the phone still (no micro-motion)? */
-  isStill: boolean;
+  /** Rejection reason if noContact is true */
+  rejectionReason: 'too_still' | 'too_much_motion' | 'insufficient_samples' | null;
 
-  /** Average Z-axis acceleration (gravity component) */
+  /** Total variance across all axes (the key metric) */
+  totalVariance: number;
+
+  /** Average Z-axis acceleration (for diagnostics only) */
   avgZ: number;
 
-  /** Average X-axis acceleration */
+  /** Average X-axis acceleration (for diagnostics only) */
   avgX: number;
 
-  /** Average Y-axis acceleration */
+  /** Average Y-axis acceleration (for diagnostics only) */
   avgY: number;
-
-  /** Total variance across all axes */
-  totalVariance: number;
 
   /** Number of samples analyzed */
   sampleCount: number;
 
   /** Confidence in the detection (0-1) */
   confidence: number;
+
+  // Legacy fields for backwards compatibility
+  /** @deprecated Use varianceInBodyRange instead */
+  isFlat: boolean;
+  /** @deprecated Use !varianceInBodyRange instead */
+  isStill: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -190,13 +199,14 @@ export class AccelerometerContactDetector {
 
   /**
    * Analyze collected samples and determine contact status
+   * Uses VARIANCE-ONLY detection - breathing micro-motion is the key signal.
    */
   analyze(): ContactDetectionResult {
     const allSamples = this.samples;
     const totalSamples = allSamples.length;
 
     console.log('\n╔══════════════════════════════════════════════════════════════════╗');
-    console.log('║            ACCELEROMETER CONTACT DETECTION                       ║');
+    console.log('║       ACCELEROMETER VARIANCE GATE (Breathing Detection)         ║');
     console.log('╚══════════════════════════════════════════════════════════════════╝');
     console.log(`Total samples collected: ${totalSamples}`);
 
@@ -204,20 +214,22 @@ export class AccelerometerContactDetector {
       console.log(`[Accelerometer] Insufficient samples: ${totalSamples} < ${ACCELEROMETER_CONFIG.minSamplesForDetection}`);
       return {
         noContact: false, // Don't reject if we can't detect
-        isFlat: false,
-        isStill: false,
+        varianceInBodyRange: false,
+        rejectionReason: 'insufficient_samples',
+        totalVariance: 0,
         avgZ: 0,
         avgX: 0,
         avgY: 0,
-        totalVariance: 0,
         sampleCount: totalSamples,
         confidence: 0,
+        isFlat: false,
+        isStill: false,
       };
     }
 
     // ════════════════════════════════════════════════════════════════════════════════
-    // SETTLING PERIOD FIX: Only use LAST portion of samples
-    // This ignores initial placement movement and only checks if phone is settled
+    // SETTLING PERIOD: Only use LAST portion of samples
+    // This ignores initial placement movement and only checks settled state
     // ════════════════════════════════════════════════════════════════════════════════
     const settledCount = Math.min(ACCELEROMETER_CONFIG.settledSampleCount, totalSamples);
     const samples = allSamples.slice(-settledCount);
@@ -229,14 +241,16 @@ export class AccelerometerContactDetector {
       console.log(`[Accelerometer] Insufficient settled samples: ${n} < ${ACCELEROMETER_CONFIG.minSettledSamples}`);
       return {
         noContact: false,
-        isFlat: false,
-        isStill: false,
+        varianceInBodyRange: false,
+        rejectionReason: 'insufficient_samples',
+        totalVariance: 0,
         avgZ: 0,
         avgX: 0,
         avgY: 0,
-        totalVariance: 0,
         sampleCount: n,
         confidence: 0,
+        isFlat: false,
+        isStill: false,
       };
     }
 
@@ -263,60 +277,91 @@ export class AccelerometerContactDetector {
     varZ /= n;
     const totalVariance = varX + varY + varZ;
 
-    // FLAT DETECTION
-    // Phone is flat if Z is close to gravity and X/Y are near zero
-    const absZ = Math.abs(avgZ);
-    const absX = Math.abs(avgX);
-    const absY = Math.abs(avgY);
-    const isFlat = absZ > ACCELEROMETER_CONFIG.flatZThreshold &&
-                   absX < ACCELEROMETER_CONFIG.flatXYThreshold &&
-                   absY < ACCELEROMETER_CONFIG.flatXYThreshold;
+    // ════════════════════════════════════════════════════════════════════════════════
+    // VARIANCE-ONLY GATE
+    // Body contact = variance in "breathing range" (not too still, not too active)
+    // ════════════════════════════════════════════════════════════════════════════════
+    const { minVarianceForBody, maxVarianceForBody } = ACCELEROMETER_CONFIG;
 
-    // STILLNESS DETECTION
-    // Phone is still if total variance is very low
-    const isStill = totalVariance < ACCELEROMETER_CONFIG.stillnessVarianceThreshold;
+    const varianceInBodyRange = totalVariance >= minVarianceForBody &&
+                                 totalVariance <= maxVarianceForBody;
 
-    // NO CONTACT = flat AND still
-    const noContact = isFlat && isStill;
-
-    // Confidence based on sample count and how clearly the criteria are met
-    const sampleConfidence = Math.min(1, n / (ACCELEROMETER_CONFIG.minSamplesForDetection * 2));
-    const flatMargin = isFlat ? (absZ - ACCELEROMETER_CONFIG.flatZThreshold) / 0.3 : 0;
-    const stillMargin = isStill ? (ACCELEROMETER_CONFIG.stillnessVarianceThreshold - totalVariance) / ACCELEROMETER_CONFIG.stillnessVarianceThreshold : 0;
-    const confidence = sampleConfidence * (noContact ? Math.min(1, (flatMargin + stillMargin) / 2 + 0.5) : 0.5);
-
-    // DIAGNOSTIC LOGGING
-    console.log(`Samples: ${n}`);
-    console.log(`Avg X: ${avgX.toFixed(4)}, Avg Y: ${avgY.toFixed(4)}, Avg Z: ${avgZ.toFixed(4)}`);
-    console.log(`Variance X: ${varX.toFixed(6)}, Y: ${varY.toFixed(6)}, Z: ${varZ.toFixed(6)}`);
-    console.log(`Total variance: ${totalVariance.toFixed(6)} (still if < ${ACCELEROMETER_CONFIG.stillnessVarianceThreshold})`);
-    console.log('--- FLAT CHECK ---');
-    console.log(`|Z| = ${absZ.toFixed(3)} (flat if > ${ACCELEROMETER_CONFIG.flatZThreshold}): ${absZ > ACCELEROMETER_CONFIG.flatZThreshold ? '✓ FLAT' : '✗ angled'}`);
-    console.log(`|X| = ${absX.toFixed(3)} (need < ${ACCELEROMETER_CONFIG.flatXYThreshold}): ${absX < ACCELEROMETER_CONFIG.flatXYThreshold ? '✓' : '✗'}`);
-    console.log(`|Y| = ${absY.toFixed(3)} (need < ${ACCELEROMETER_CONFIG.flatXYThreshold}): ${absY < ACCELEROMETER_CONFIG.flatXYThreshold ? '✓' : '✗'}`);
-    console.log(`isFlat: ${isFlat}`);
-    console.log('--- STILLNESS CHECK ---');
-    console.log(`totalVariance: ${totalVariance.toFixed(6)} (still if < ${ACCELEROMETER_CONFIG.stillnessVarianceThreshold}): ${isStill ? '✓ STILL' : '✗ moving'}`);
-    console.log(`isStill: ${isStill}`);
-    console.log('--- FINAL DECISION ---');
-    console.log(`noContact (flat AND still): ${noContact}`);
-    if (noContact) {
-      console.log('>>> ACCELEROMETER GATE: REJECT ALL AUDIO - phone is on table');
-    } else {
-      console.log('>>> ACCELEROMETER GATE: PASS - proceed with audio analysis');
+    // Determine rejection reason
+    let rejectionReason: ContactDetectionResult['rejectionReason'] = null;
+    if (totalVariance < minVarianceForBody) {
+      rejectionReason = 'too_still';
+    } else if (totalVariance > maxVarianceForBody) {
+      rejectionReason = 'too_much_motion';
     }
-    console.log('=====================================');
+
+    // NO CONTACT = variance NOT in body range
+    const noContact = !varianceInBodyRange;
+
+    // Confidence based on how clearly within/outside the range
+    const sampleConfidence = Math.min(1, n / (ACCELEROMETER_CONFIG.minSamplesForDetection * 2));
+    let rangeConfidence: number;
+    if (varianceInBodyRange) {
+      // How centered within the range? (1.0 = perfectly centered)
+      const rangeCenter = (minVarianceForBody + maxVarianceForBody) / 2;
+      const rangeHalf = (maxVarianceForBody - minVarianceForBody) / 2;
+      rangeConfidence = 1 - Math.abs(totalVariance - rangeCenter) / rangeHalf;
+    } else {
+      // How far outside the range?
+      if (totalVariance < minVarianceForBody) {
+        rangeConfidence = Math.min(1, minVarianceForBody / Math.max(totalVariance, 0.0000001));
+      } else {
+        rangeConfidence = Math.min(1, maxVarianceForBody / totalVariance);
+      }
+    }
+    const confidence = sampleConfidence * rangeConfidence;
+
+    // Legacy fields for backwards compatibility
+    const isStill = totalVariance < minVarianceForBody;
+    const isFlat = false; // No longer used
+
+    // ════════════════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC LOGGING
+    // ════════════════════════════════════════════════════════════════════════════════
+    console.log('--- VARIANCE GATE ---');
+    console.log(`Samples analyzed: ${n}`);
+    console.log(`Variance X: ${varX.toFixed(8)}, Y: ${varY.toFixed(8)}, Z: ${varZ.toFixed(8)}`);
+    console.log(`Total variance: ${totalVariance.toFixed(8)}`);
+    console.log(`Min for body: ${minVarianceForBody} (below = no breathing)`);
+    console.log(`Max for body: ${maxVarianceForBody} (above = too unstable)`);
+    console.log(`In body range?: ${varianceInBodyRange}`);
+    console.log('');
+
+    if (totalVariance < minVarianceForBody) {
+      console.log('>>> REJECTED: Too still (no breathing detected)');
+      console.log(`    Variance ${totalVariance.toFixed(8)} < min ${minVarianceForBody}`);
+      console.log('    Likely: phone on table, pillow, or other static surface');
+    } else if (totalVariance > maxVarianceForBody) {
+      console.log('>>> REJECTED: Too much motion (unstable recording)');
+      console.log(`    Variance ${totalVariance.toFixed(8)} > max ${maxVarianceForBody}`);
+      console.log('    Likely: walking, exercising, or phone being handled');
+    } else {
+      console.log('>>> PASSED: Variance in body contact range');
+      console.log(`    Variance ${totalVariance.toFixed(8)} is within [${minVarianceForBody}, ${maxVarianceForBody}]`);
+      console.log('    Detected breathing micro-motion - phone appears to be on body');
+    }
+
+    console.log('');
+    console.log(`Avg position (diagnostics): X=${avgX.toFixed(3)}, Y=${avgY.toFixed(3)}, Z=${avgZ.toFixed(3)}`);
+    console.log(`Confidence: ${(confidence * 100).toFixed(0)}%`);
+    console.log('════════════════════════════════════════════════════════════════════');
 
     return {
       noContact,
-      isFlat,
-      isStill,
+      varianceInBodyRange,
+      rejectionReason,
+      totalVariance,
       avgZ,
       avgX,
       avgY,
-      totalVariance,
       sampleCount: n,
       confidence,
+      isFlat,
+      isStill,
     };
   }
 }

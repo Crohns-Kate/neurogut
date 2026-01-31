@@ -2958,10 +2958,12 @@ function detectNoSkinContact(energyValues: number[]): boolean {
 export interface AccelerometerContactResult {
   /** Is the phone likely NOT in contact with body? */
   noContact: boolean;
-  /** Is the phone lying flat? */
-  isFlat: boolean;
-  /** Is the phone still? */
-  isStill: boolean;
+  /** Is variance in the body contact range? (has breathing micro-motion) */
+  varianceInBodyRange: boolean;
+  /** Rejection reason if noContact is true */
+  rejectionReason: 'too_still' | 'too_much_motion' | 'insufficient_samples' | null;
+  /** Total variance across all axes */
+  totalVariance: number;
   /** Confidence in detection (0-1) */
   confidence: number;
 }
@@ -3020,9 +3022,11 @@ export function analyzeAudioSamples(
   // ════════════════════════════════════════════════════════════════════════════════
   if (accelerometerResult?.noContact) {
     console.log('\n╔══════════════════════════════════════════════════════════════════╗');
-    console.log('║     ACCELEROMETER GATE: PHONE ON TABLE - REJECTING ALL          ║');
+    console.log('║     ACCELEROMETER VARIANCE GATE: NO BODY CONTACT DETECTED       ║');
     console.log('╚══════════════════════════════════════════════════════════════════╝');
-    console.log(`isFlat: ${accelerometerResult.isFlat}, isStill: ${accelerometerResult.isStill}`);
+    console.log(`Variance: ${accelerometerResult.totalVariance?.toFixed(8) ?? 'N/A'}`);
+    console.log(`In body range: ${accelerometerResult.varianceInBodyRange}`);
+    console.log(`Rejection reason: ${accelerometerResult.rejectionReason ?? 'unknown'}`);
     console.log(`Confidence: ${(accelerometerResult.confidence * 100).toFixed(1)}%`);
     console.log('>>> Returning 0 events - phone not in contact with body');
     console.log('=====================================\n');
