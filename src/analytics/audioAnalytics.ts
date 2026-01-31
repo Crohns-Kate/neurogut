@@ -3109,6 +3109,22 @@ export function analyzeAudioSamples(
   // Compute windowed energy from FILTERED samples
   const energyValues = computeWindowedEnergy(filteredSamples, windowSizeSamples);
 
+  // DEBUG: Check if bandpass filter killed the signal
+  console.log('\n[DEBUG] Sample comparison (raw vs filtered):');
+  let rawRms = 0, filteredRms = 0;
+  for (let i = 0; i < samples.length; i++) {
+    rawRms += samples[i] * samples[i];
+    filteredRms += filteredSamples[i] * filteredSamples[i];
+  }
+  rawRms = Math.sqrt(rawRms / samples.length);
+  filteredRms = Math.sqrt(filteredRms / filteredSamples.length);
+  console.log(`  Raw samples RMS: ${rawRms.toFixed(6)}`);
+  console.log(`  Filtered samples RMS: ${filteredRms.toFixed(6)}`);
+  console.log(`  Signal retained: ${(100 * filteredRms / rawRms).toFixed(1)}%`);
+  if (filteredRms < 0.001) {
+    console.log('  >>> WARNING: Bandpass filter may have killed the signal!');
+  }
+
   // ══════════════════════════════════════════════════════════════════════════════
   // DEEP SPECTRAL HARDENING - AIR NOISE DETECTION (NG-HARDEN-03)
   // Check if entire recording is dominated by air noise BEFORE any processing
@@ -3237,6 +3253,41 @@ export function analyzeAudioSamples(
     console.log('>>> OVERRIDE: isAirNoiseBaseline=true BUT accelerometer confirmed contact - proceeding');
   }
   console.log('>>> PASSED: Noise floor check - proceeding to event detection');
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DEBUG: Log energy values and threshold to diagnose event detection
+  // ══════════════════════════════════════════════════════════════════════════════
+  console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+  console.log('║                  EVENT DETECTION DEBUG                           ║');
+  console.log('╚══════════════════════════════════════════════════════════════════╝');
+  console.log(`Threshold: ${noiseFloor.eventThreshold.toFixed(6)}`);
+  console.log(`Energy windows: ${energyValues.length}`);
+
+  // Calculate energy stats
+  let energyMin = Infinity, energyMax = -Infinity, energySum = 0;
+  let aboveThresholdCount = 0;
+  for (let i = 0; i < energyValues.length; i++) {
+    const e = energyValues[i];
+    if (e < energyMin) energyMin = e;
+    if (e > energyMax) energyMax = e;
+    energySum += e;
+    if (e > noiseFloor.eventThreshold) aboveThresholdCount++;
+  }
+  const energyMean = energySum / energyValues.length;
+
+  console.log(`Energy min: ${energyMin.toFixed(6)}`);
+  console.log(`Energy max: ${energyMax.toFixed(6)}`);
+  console.log(`Energy mean: ${energyMean.toFixed(6)}`);
+  console.log(`Windows above threshold: ${aboveThresholdCount}/${energyValues.length} (${(100 * aboveThresholdCount / energyValues.length).toFixed(1)}%)`);
+
+  // Log first 10 windows
+  console.log('First 10 energy windows:');
+  for (let i = 0; i < Math.min(10, energyValues.length); i++) {
+    const e = energyValues[i];
+    const marker = e > noiseFloor.eventThreshold ? '>>> ABOVE' : '';
+    console.log(`  Window ${i}: ${e.toFixed(6)} ${marker}`);
+  }
+  console.log('════════════════════════════════════════════════════════════════════');
 
   // Detect events using calibrated threshold
   let events = detectEvents(energyValues, noiseFloor.eventThreshold);
