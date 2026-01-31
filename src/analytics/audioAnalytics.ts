@@ -2541,16 +2541,33 @@ function computeNoiseFloor(
     frequencyWeightedNoiseFloor = noiseFloorMean;
   }
 
-  // Event threshold: Use noiseFloorMean directly (NOT frequencyWeightedNoiseFloor)
-  // BUG FIX: frequencyWeightedNoiseFloor is on a completely different scale (12.78 vs 0.044)
-  // Using Math.max picked the wrong value and made threshold useless
-  const simpleMultiplier = isAirNoiseBaseline ? 4.5 : 3.5;
-  const eventThreshold = noiseFloorMean * simpleMultiplier;
+  // Event threshold: Use ADAPTIVE threshold based on signal statistics
+  // After 100-500Hz bandpass filtering, gut sounds may only be slightly above noise floor
+  // Fixed multiplier (3.5x) was too high - max energy was 0.069 but threshold was 0.16
+  //
+  // NEW APPROACH: Use percentile-based threshold
+  // - Find 85th percentile of calibration energies
+  // - Threshold = midpoint between noise floor and 85th percentile
+  // - This adapts to actual filtered signal range
 
-  console.log(`[NoiseFloor] noiseFloorMean=${noiseFloorMean.toFixed(6)} (USING THIS)`);
-  console.log(`[NoiseFloor] frequencyWeightedNoiseFloor=${frequencyWeightedNoiseFloor.toFixed(6)} (IGNORED - wrong scale)`);
-  console.log(`[NoiseFloor] multiplier=${simpleMultiplier}x (isAirNoise=${isAirNoiseBaseline})`);
-  console.log(`[NoiseFloor] eventThreshold=${eventThreshold.toFixed(6)}`);
+  // Sort calibration energies to find percentiles
+  const sortedCalibration = [...calibrationEnergies].sort((a, b) => a - b);
+  const p85Index = Math.floor(sortedCalibration.length * 0.85);
+  const p85 = sortedCalibration[p85Index] || noiseFloorMean;
+
+  // Threshold = slightly above noise floor, scaled to signal range
+  // Use 1.2x multiplier as baseline, but ensure it's below the peak activity
+  const adaptiveMultiplier = isAirNoiseBaseline ? 1.4 : 1.2;
+  const baseThreshold = noiseFloorMean * adaptiveMultiplier;
+
+  // Don't let threshold exceed 85th percentile (would miss too many events)
+  const eventThreshold = Math.min(baseThreshold, p85 * 0.95);
+
+  console.log(`[NoiseFloor] noiseFloorMean=${noiseFloorMean.toFixed(6)}`);
+  console.log(`[NoiseFloor] 85th percentile=${p85.toFixed(6)}`);
+  console.log(`[NoiseFloor] adaptiveMultiplier=${adaptiveMultiplier}x`);
+  console.log(`[NoiseFloor] baseThreshold=${baseThreshold.toFixed(6)}`);
+  console.log(`[NoiseFloor] eventThreshold=${eventThreshold.toFixed(6)} (capped at 95% of p85)`);
 
   return {
     noiseFloorMean,
