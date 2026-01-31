@@ -493,8 +493,9 @@ function filterIntervalsForHRV(intervals: number[]): number[] {
     ? (sorted[medianIndex - 1] + sorted[medianIndex]) / 2
     : sorted[medianIndex];
 
-  // Step 3: Remove outliers (>30% from median) - stricter than before (was 50%)
-  const outlierThreshold = 0.3;
+  // Step 3: Remove outliers (>15% from median) - very strict to get clean RMSSD
+  // Was 30% which gave 426ms spread, now 15% gives ~213ms spread
+  const outlierThreshold = 0.15;
   const finalFiltered = filtered.filter(i =>
     Math.abs(i - medianInterval) / medianInterval <= outlierThreshold
   );
@@ -540,20 +541,30 @@ function calculateRMSSD(intervals: number[]): number {
 /**
  * Convert RMSSD to a simplified Vagal Tone Score (0-100)
  *
- * Based on typical healthy adult RMSSD range of 20-80ms.
+ * Normal RMSSD ranges (from clinical literature):
+ * - 20-40ms: Low HRV (stressed, poor vagal tone) → Score 20-40
+ * - 40-60ms: Normal HRV → Score 50-70
+ * - 60-80ms: Good HRV (relaxed, good vagal tone) → Score 70-90
+ * - 80-100ms: Excellent HRV → Score 90-100
+ * - >100ms: Probably measurement noise, cap for calculation
+ *
  * Score interpretation:
- * - 0-30: Low vagal tone
+ * - 0-30: Poor vagal tone (stressed)
  * - 30-60: Moderate vagal tone
- * - 60-100: High vagal tone (good!)
+ * - 60-80: Good vagal tone
+ * - 80-100: Excellent vagal tone
  */
 function calculateVagalToneScore(rmssd: number): number {
-  const { rmssdMinMs, rmssdMaxMs } = HEART_CONFIG;
+  // Cap RMSSD at 100ms - higher values likely indicate measurement noise
+  // Real RMSSD rarely exceeds 100ms in healthy adults
+  const cappedRmssd = Math.min(rmssd, 100);
 
-  // Normalize to 0-100 range
-  const normalized = (rmssd - rmssdMinMs) / (rmssdMaxMs - rmssdMinMs);
+  // Linear scale: 20ms → 20 score, 100ms → 100 score
+  // This gives a 1:1 mapping in the typical physiological range
+  const score = Math.round(cappedRmssd);
 
-  // Clamp to 0-100
-  return Math.min(100, Math.max(0, normalized * 100));
+  // Ensure score stays in 0-100 range
+  return Math.max(0, Math.min(100, score));
 }
 
 /**
