@@ -115,6 +115,94 @@ export function getHeartBandFilter(sampleRate: number = 44100): ButterworthFilte
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// AUTOCORRELATION - Find dominant heart rhythm
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute autocorrelation to find the dominant period in the signal
+ *
+ * This finds the lag at which the signal best correlates with itself,
+ * which corresponds to the heart rate period.
+ *
+ * @returns Dominant period in samples, or 0 if not found
+ */
+function findDominantPeriod(
+  envelope: number[],
+  sampleRate: number
+): { periodSamples: number; periodMs: number; confidence: number } {
+  const { minPeakDistanceMs, maxPeakDistanceMs } = HEART_CONFIG;
+
+  // Convert to sample range for autocorrelation lags
+  const minLag = Math.floor((minPeakDistanceMs / 1000) * sampleRate);
+  const maxLag = Math.floor((maxPeakDistanceMs / 1000) * sampleRate);
+
+  // Compute mean for normalization
+  const mean = envelope.reduce((s, v) => s + v, 0) / envelope.length;
+  const centered = envelope.map(v => v - mean);
+
+  // Compute variance for normalization
+  const variance = centered.reduce((s, v) => s + v * v, 0) / centered.length;
+  if (variance < 1e-10) {
+    return { periodSamples: 0, periodMs: 0, confidence: 0 };
+  }
+
+  // Compute autocorrelation for lags in physiological range
+  let maxCorr = -1;
+  let bestLag = 0;
+
+  // Use a stride to speed up computation (check every 10 samples)
+  const stride = 10;
+
+  for (let lag = minLag; lag <= maxLag; lag += stride) {
+    let sum = 0;
+    const n = envelope.length - lag;
+
+    for (let i = 0; i < n; i++) {
+      sum += centered[i] * centered[i + lag];
+    }
+
+    const corr = sum / (n * variance);
+
+    if (corr > maxCorr) {
+      maxCorr = corr;
+      bestLag = lag;
+    }
+  }
+
+  // Refine around best lag (check exact samples)
+  const refineStart = Math.max(minLag, bestLag - stride);
+  const refineEnd = Math.min(maxLag, bestLag + stride);
+
+  for (let lag = refineStart; lag <= refineEnd; lag++) {
+    let sum = 0;
+    const n = envelope.length - lag;
+
+    for (let i = 0; i < n; i++) {
+      sum += centered[i] * centered[i + lag];
+    }
+
+    const corr = sum / (n * variance);
+
+    if (corr > maxCorr) {
+      maxCorr = corr;
+      bestLag = lag;
+    }
+  }
+
+  const periodMs = (bestLag / sampleRate) * 1000;
+  const bpm = 60000 / periodMs;
+
+  console.log(`    [Autocorr] Best lag: ${bestLag} samples (${periodMs.toFixed(0)}ms, ${bpm.toFixed(0)} BPM)`);
+  console.log(`    [Autocorr] Correlation: ${maxCorr.toFixed(3)}`);
+
+  return {
+    periodSamples: bestLag,
+    periodMs,
+    confidence: maxCorr,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // PEAK DETECTION
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -258,6 +346,98 @@ function filterPhysiologicalPeaks(peaks: Peak[]): Peak[] {
   }
 
   return validPeaks;
+}
+
+/**
+ * Select peaks that align with the dominant period from autocorrelation
+ *
+ * This is the key fix for RMSSD: instead of accepting any prominent peak,
+ * we only accept peaks that are close to expected beat times based on
+ * the autocorrelation-derived rhythm.
+ *
+ * @param peaks - Candidate peaks from basic peak detection
+ * @param dominantPeriodMs - Expected period between beats from autocorrelation
+ * @returns Peaks that align with the dominant rhythm
+ */
+function selectAlignedPeaks(peaks: Peak[], dominantPeriodMs: number): Peak[] {
+  if (peaks.length < 2 || dominantPeriodMs <= 0) return peaks;
+
+  // Tolerance: ±15% of the dominant period
+  const tolerance = dominantPeriodMs * 0.15;
+
+  // Find the strongest peak as anchor
+  let anchorIdx = 0;
+  let maxAmp = 0;
+  for (let i = 0; i < peaks.length; i++) {
+    if (peaks[i].amplitude > maxAmp) {
+      maxAmp = peaks[i].amplitude;
+      anchorIdx = i;
+    }
+  }
+
+  const alignedPeaks: Peak[] = [peaks[anchorIdx]];
+  const usedIndices = new Set<number>([anchorIdx]);
+
+  // Search forward from anchor
+  let expectedTime = peaks[anchorIdx].timestampMs + dominantPeriodMs;
+  while (expectedTime < peaks[peaks.length - 1].timestampMs + tolerance) {
+    // Find best peak near expected time
+    let bestPeak: Peak | null = null;
+    let bestDist = Infinity;
+    let bestIdx = -1;
+
+    for (let i = 0; i < peaks.length; i++) {
+      if (usedIndices.has(i)) continue;
+
+      const dist = Math.abs(peaks[i].timestampMs - expectedTime);
+      if (dist < tolerance && dist < bestDist) {
+        bestDist = dist;
+        bestPeak = peaks[i];
+        bestIdx = i;
+      }
+    }
+
+    if (bestPeak) {
+      alignedPeaks.push(bestPeak);
+      usedIndices.add(bestIdx);
+      expectedTime = bestPeak.timestampMs + dominantPeriodMs;
+    } else {
+      // No peak found near expected time - skip to next expected beat
+      expectedTime += dominantPeriodMs;
+    }
+  }
+
+  // Search backward from anchor
+  expectedTime = peaks[anchorIdx].timestampMs - dominantPeriodMs;
+  while (expectedTime > peaks[0].timestampMs - tolerance) {
+    let bestPeak: Peak | null = null;
+    let bestDist = Infinity;
+    let bestIdx = -1;
+
+    for (let i = 0; i < peaks.length; i++) {
+      if (usedIndices.has(i)) continue;
+
+      const dist = Math.abs(peaks[i].timestampMs - expectedTime);
+      if (dist < tolerance && dist < bestDist) {
+        bestDist = dist;
+        bestPeak = peaks[i];
+        bestIdx = i;
+      }
+    }
+
+    if (bestPeak) {
+      alignedPeaks.unshift(bestPeak);
+      usedIndices.add(bestIdx);
+      expectedTime = bestPeak.timestampMs - dominantPeriodMs;
+    } else {
+      expectedTime -= dominantPeriodMs;
+    }
+  }
+
+  console.log(`    [AlignedPeaks] Selected ${alignedPeaks.length} peaks aligned with ${dominantPeriodMs.toFixed(0)}ms period`);
+  console.log(`    [AlignedPeaks] Rejected ${peaks.length - alignedPeaks.length} non-aligned peaks`);
+
+  return alignedPeaks.sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -438,14 +618,25 @@ export function analyzeHeartRate(
   const envelopeWindowSamples = Math.floor((envelopeWindowMs / 1000) * sampleRate);
   const envelope = computeEnvelope(filteredSamples, envelopeWindowSamples);
 
+  // Step 2.5: Find dominant period using autocorrelation
+  console.log('\n[2.5] Finding dominant heart rhythm via autocorrelation...');
+  const dominantPeriod = findDominantPeriod(envelope, sampleRate);
+
   // Step 3: Detect peaks
   console.log('\n[3] Detecting heartbeat peaks...');
   let peaks = detectHeartbeatPeaks(envelope, sampleRate);
   console.log(`    Raw peaks detected: ${peaks.length}`);
 
-  // Step 4: Filter physiological peaks
-  peaks = filterPhysiologicalPeaks(peaks);
-  console.log(`    Physiological peaks: ${peaks.length}`);
+  // Step 3.5: Select peaks aligned with dominant rhythm (if we found a strong rhythm)
+  if (dominantPeriod.confidence >= 0.3 && dominantPeriod.periodMs > 0) {
+    console.log('\n[3.5] Selecting peaks aligned with dominant rhythm...');
+    peaks = selectAlignedPeaks(peaks, dominantPeriod.periodMs);
+  } else {
+    console.log('\n[3.5] Skipping rhythm alignment (autocorr confidence too low)');
+    // Fall back to physiological filtering
+    peaks = filterPhysiologicalPeaks(peaks);
+  }
+  console.log(`    Final peaks: ${peaks.length}`);
 
   if (peaks.length < HEART_CONFIG.minBeatsForValidBPM) {
     console.log(`>>> Insufficient beats detected (${peaks.length} < ${HEART_CONFIG.minBeatsForValidBPM})`);
