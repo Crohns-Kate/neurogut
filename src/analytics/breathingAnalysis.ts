@@ -74,9 +74,9 @@ export interface BreathingAnalysis {
 
 const BREATHING_CONFIG = {
   // Breathing frequency range (Hz)
-  // 0.1 Hz = 6 breaths/min, 0.5 Hz = 30 breaths/min
-  minFrequencyHz: 0.1,
-  maxFrequencyHz: 0.5,
+  // 0.08 Hz = 4.8 breaths/min (very slow/relaxed), 0.6 Hz = 36 breaths/min (rapid)
+  minFrequencyHz: 0.08,
+  maxFrequencyHz: 0.6,
 
   // Minimum peak prominence (fraction of signal range)
   minPeakProminence: 0.15,
