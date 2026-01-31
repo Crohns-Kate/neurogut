@@ -35,7 +35,7 @@ import {
 } from "../src/models/session";
 import { addSession, updateSessionAnalytics } from "../src/storage/sessionStore";
 import { analyzeAudioSamples } from "../src/analytics/audioAnalytics";
-import { extractAudioSamples } from "../src/utils/audioExtractor";
+import { extractAudioSamples, getEffectiveSampleRate } from "../src/utils/audioExtractor";
 import AnatomicalMirror from "../components/AnatomicalMirror";
 import PlacementGuide from "../components/PlacementGuide";
 import VagalPrimer from "../components/VagalPrimer";
@@ -1373,12 +1373,13 @@ export default function GutSoundRecordingScreen() {
 
         let analytics;
         try {
-          // Extract audio samples from the recording
-          const samples = await extractAudioSamples(targetUri, durationSeconds, 44100);
-          console.log(`Extracted ${samples.length} samples for analysis`);
+          // Extract audio samples from the recording (downsampled to avoid stack overflow)
+          const effectiveSampleRate = getEffectiveSampleRate();
+          const samples = await extractAudioSamples(targetUri, durationSeconds, effectiveSampleRate);
+          console.log(`Extracted ${samples.length} samples for analysis at ${effectiveSampleRate}Hz`);
 
           // Run full audio analysis with accelerometer result
-          analytics = analyzeAudioSamples(samples, durationSeconds, 44100, {
+          analytics = analyzeAudioSamples(samples, durationSeconds, effectiveSampleRate, {
             applyBirdFilter: true,
             isHummingPhase: false,
             accelerometerResult: {
