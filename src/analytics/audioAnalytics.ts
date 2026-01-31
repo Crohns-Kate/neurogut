@@ -2541,19 +2541,16 @@ function computeNoiseFloor(
     frequencyWeightedNoiseFloor = noiseFloorMean;
   }
 
-  // Event threshold: Use frequency-weighted noise floor for better accuracy
-  // SIMPLIFIED: Just use 3.5x noise floor mean (capped at 5x)
-  // Previous stdDev-based formula produced thresholds 100x+ too high
-  const baseNoiseFloor = Math.max(noiseFloorMean, frequencyWeightedNoiseFloor);
-
-  // FORCE simple multiplier approach
+  // Event threshold: Use noiseFloorMean directly (NOT frequencyWeightedNoiseFloor)
+  // BUG FIX: frequencyWeightedNoiseFloor is on a completely different scale (12.78 vs 0.044)
+  // Using Math.max picked the wrong value and made threshold useless
   const simpleMultiplier = isAirNoiseBaseline ? 4.5 : 3.5;
-  const eventThreshold = baseNoiseFloor * simpleMultiplier;
+  const eventThreshold = noiseFloorMean * simpleMultiplier;
 
-  console.log(`[NoiseFloor] baseNoiseFloor=${baseNoiseFloor.toFixed(6)}`);
-  console.log(`[NoiseFloor] multiplier=${simpleMultiplier} (isAirNoise=${isAirNoiseBaseline})`);
-  console.log(`[NoiseFloor] eventThreshold=${eventThreshold.toFixed(6)} (${simpleMultiplier}x noise floor)`);
-  console.log(`[NoiseFloor] stdDev was ${noiseFloorStdDev.toFixed(4)} (ignored - was causing 100x+ thresholds)`);
+  console.log(`[NoiseFloor] noiseFloorMean=${noiseFloorMean.toFixed(6)} (USING THIS)`);
+  console.log(`[NoiseFloor] frequencyWeightedNoiseFloor=${frequencyWeightedNoiseFloor.toFixed(6)} (IGNORED - wrong scale)`);
+  console.log(`[NoiseFloor] multiplier=${simpleMultiplier}x (isAirNoise=${isAirNoiseBaseline})`);
+  console.log(`[NoiseFloor] eventThreshold=${eventThreshold.toFixed(6)}`);
 
   return {
     noiseFloorMean,
