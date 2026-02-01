@@ -79,7 +79,8 @@ const BREATHING_CONFIG = {
   maxFrequencyHz: 0.6,
 
   // Minimum peak prominence (fraction of signal range)
-  minPeakProminence: 0.15,
+  // Lowered from 0.15 to 0.05 to catch subtle breathing
+  minPeakProminence: 0.05,
 
   // Minimum time between peaks (ms) - prevents double detection
   minPeakDistanceMs: 1500, // At most 40 breaths/min
@@ -156,6 +157,44 @@ function bandpassFilter(
   const filtered = lowPassed.map((v, i) => v - dcComponent[i]);
 
   return filtered;
+}
+
+/**
+ * Zero-crossing fallback for breathing rate estimation
+ * Used when peak detection fails (e.g., weak signal)
+ */
+function estimateBreathingRateZeroCrossing(
+  signal: number[],
+  sampleRateHz: number
+): number {
+  // Remove DC offset
+  const avg = mean(signal);
+  const centered = signal.map((v) => v - avg);
+
+  // Smooth with 0.5 second window to reduce noise
+  const windowSize = Math.floor(sampleRateHz * 0.5);
+  const smoothed = movingAverage(centered, Math.max(3, windowSize));
+
+  // Count zero crossings
+  let crossings = 0;
+  for (let i = 1; i < smoothed.length; i++) {
+    if (
+      (smoothed[i - 1] < 0 && smoothed[i] >= 0) ||
+      (smoothed[i - 1] >= 0 && smoothed[i] < 0)
+    ) {
+      crossings++;
+    }
+  }
+
+  // Each breath = 2 crossings (up and down)
+  const durationMinutes = signal.length / sampleRateHz / 60;
+  const breathsPerMinute = crossings / 2 / durationMinutes;
+
+  console.log(
+    `[Breathing] Zero-crossing fallback: ${crossings} crossings → ${breathsPerMinute.toFixed(1)} breaths/min`
+  );
+
+  return breathsPerMinute;
 }
 
 /**
@@ -337,13 +376,33 @@ export function analyzeBreathPhases(
   console.log(`[Breathing] Variance - X: ${varX.toFixed(6)}, Y: ${varY.toFixed(6)}, Z: ${varZ.toFixed(6)}`);
   console.log(`[Breathing] Using ${primaryAxis.toUpperCase()}-axis (highest variance)`);
 
-  // 2. Bandpass filter for breathing frequencies (0.1-0.5 Hz = 6-30 breaths/min)
+  // Log pre-filter signal range
+  const preFilterRange = Math.max(...signal) - Math.min(...signal);
+  console.log(`[Breathing] Pre-filter range: ${preFilterRange.toFixed(6)}`);
+
+  // 2. Bandpass filter for breathing frequencies
   const filtered = bandpassFilter(
     signal,
     BREATHING_CONFIG.minFrequencyHz,
     BREATHING_CONFIG.maxFrequencyHz,
     sampleRateHz
   );
+
+  // Log post-filter signal range
+  const postFilterRange = Math.max(...filtered) - Math.min(...filtered);
+  console.log(`[Breathing] Post-filter range: ${postFilterRange.toFixed(6)}`);
+
+  // Check if filter killed the signal
+  if (postFilterRange < 0.0001) {
+    console.log("[Breathing] WARNING: Bandpass filter removed signal, using zero-crossing fallback");
+    const simpleRate = estimateBreathingRateZeroCrossing(signal, sampleRateHz);
+    return {
+      ...defaultResult,
+      primaryAxis,
+      breathsPerMinute: Math.round(simpleRate * 10) / 10,
+      pattern: simpleRate > 6 && simpleRate < 20 ? "regular" : "irregular",
+    };
+  }
 
   // 3. Find peaks (end of inhale) and troughs (end of exhale)
   const peaks = findPeaks(filtered, sampleRateHz);
@@ -352,8 +411,14 @@ export function analyzeBreathPhases(
   console.log(`[Breathing] Peaks detected: ${peaks.length}, Troughs: ${troughs.length}`);
 
   if (peaks.length < BREATHING_CONFIG.minCyclesForAnalysis || troughs.length < BREATHING_CONFIG.minCyclesForAnalysis) {
-    console.log("[Breathing] Insufficient peaks/troughs for analysis");
-    return { ...defaultResult, primaryAxis };
+    console.log("[Breathing] Insufficient peaks/troughs, using zero-crossing fallback");
+    const simpleRate = estimateBreathingRateZeroCrossing(signal, sampleRateHz);
+    return {
+      ...defaultResult,
+      primaryAxis,
+      breathsPerMinute: Math.round(simpleRate * 10) / 10,
+      pattern: simpleRate > 6 && simpleRate < 20 ? "regular" : "irregular",
+    };
   }
 
   // 4. Build breath cycles from peaks and troughs
@@ -410,8 +475,15 @@ export function analyzeBreathPhases(
   console.log(`[Breathing] Valid cycles: ${cycles.length}`);
 
   if (cycles.length < BREATHING_CONFIG.minCyclesForAnalysis) {
-    console.log("[Breathing] Insufficient valid cycles");
-    return { ...defaultResult, primaryAxis, cycles };
+    console.log("[Breathing] Insufficient valid cycles, using zero-crossing fallback");
+    const simpleRate = estimateBreathingRateZeroCrossing(signal, sampleRateHz);
+    return {
+      ...defaultResult,
+      primaryAxis,
+      cycles,
+      breathsPerMinute: Math.round(simpleRate * 10) / 10,
+      pattern: simpleRate > 6 && simpleRate < 20 ? "regular" : "irregular",
+    };
   }
 
   // 5. Calculate aggregates

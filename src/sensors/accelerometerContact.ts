@@ -52,8 +52,13 @@ export const ACCELEROMETER_CONFIG = {
 
   // MAXIMUM variance for valid recording
   // Above this = too much motion = walking/unstable
-  // Empirical: walking ~0.01+
-  maxVarianceForBody: 0.005,
+  // Empirical: walking ~0.01+, deep breathing ~0.01-0.02
+  // Increased from 0.005 to allow stronger breathing motion
+  maxVarianceForBody: 0.02,
+
+  // Threshold for "high motion warning" (deep breathing detected)
+  // Between normal max (0.005) and absolute max (0.02)
+  highMotionWarningThreshold: 0.005,
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -76,6 +81,9 @@ export interface ContactDetectionResult {
 
   /** Rejection reason if noContact is true */
   rejectionReason: 'too_still' | 'too_much_motion' | 'insufficient_samples' | null;
+
+  /** High motion detected but likely deep breathing (not rejected, just flagged) */
+  highMotionWarning: boolean;
 
   /** Total variance across all axes (the key metric) */
   totalVariance: number;
@@ -216,6 +224,7 @@ export class AccelerometerContactDetector {
         noContact: false, // Don't reject if we can't detect
         varianceInBodyRange: false,
         rejectionReason: 'insufficient_samples',
+        highMotionWarning: false,
         totalVariance: 0,
         avgZ: 0,
         avgX: 0,
@@ -243,6 +252,7 @@ export class AccelerometerContactDetector {
         noContact: false,
         varianceInBodyRange: false,
         rejectionReason: 'insufficient_samples',
+        highMotionWarning: false,
         totalVariance: 0,
         avgZ: 0,
         avgX: 0,
@@ -281,10 +291,15 @@ export class AccelerometerContactDetector {
     // VARIANCE-ONLY GATE
     // Body contact = variance in "breathing range" (not too still, not too active)
     // ════════════════════════════════════════════════════════════════════════════════
-    const { minVarianceForBody, maxVarianceForBody } = ACCELEROMETER_CONFIG;
+    const { minVarianceForBody, maxVarianceForBody, highMotionWarningThreshold } = ACCELEROMETER_CONFIG;
 
     const varianceInBodyRange = totalVariance >= minVarianceForBody &&
                                  totalVariance <= maxVarianceForBody;
+
+    // High motion warning: variance above normal but below rejection threshold
+    // This indicates deep breathing or slight movement but still valid recording
+    const highMotionWarning = totalVariance > highMotionWarningThreshold &&
+                               totalVariance <= maxVarianceForBody;
 
     // Determine rejection reason
     let rejectionReason: ContactDetectionResult['rejectionReason'] = null;
@@ -339,6 +354,10 @@ export class AccelerometerContactDetector {
       console.log('>>> REJECTED: Too much motion (unstable recording)');
       console.log(`    Variance ${totalVariance.toFixed(8)} > max ${maxVarianceForBody}`);
       console.log('    Likely: walking, exercising, or phone being handled');
+    } else if (highMotionWarning) {
+      console.log('>>> PASSED WITH WARNING: High motion (likely deep breathing)');
+      console.log(`    Variance ${totalVariance.toFixed(8)} > warning threshold ${highMotionWarningThreshold}`);
+      console.log('    Proceeding - higher variance likely from deep/intentional breathing');
     } else {
       console.log('>>> PASSED: Variance in body contact range');
       console.log(`    Variance ${totalVariance.toFixed(8)} is within [${minVarianceForBody}, ${maxVarianceForBody}]`);
@@ -354,6 +373,7 @@ export class AccelerometerContactDetector {
       noContact,
       varianceInBodyRange,
       rejectionReason,
+      highMotionWarning,
       totalVariance,
       avgZ,
       avgX,
