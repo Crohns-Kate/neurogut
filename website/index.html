@@ -830,6 +830,41 @@
                 </div>
             </div>
 
+            <!-- App Walkthrough Video -->
+            <div class="mt-14">
+                <div class="glass-card p-6 md:p-8 max-w-4xl mx-auto">
+                    <div class="section-label text-center mb-3">HOW IT WORKS /</div>
+                    <h3 class="text-2xl font-display font-semibold text-white text-center mb-3">
+                        App Walkthrough
+                    </h3>
+                    <p class="text-ai-grey text-sm text-center mb-6">
+                        See how the NeuroGut app guides you through a complete session.
+                    </p>
+                    <div class="relative w-full overflow-hidden rounded-xl border border-white/10">
+                        <video
+                            id="walkthrough-video"
+                            class="w-full h-auto cursor-pointer"
+                            controls
+                            playsinline
+                            preload="auto"
+                            src="media/neurogut-app-walkthrough.mp4"
+                        ></video>
+                        <!-- Play button overlay -->
+                        <div id="walkthrough-play-overlay" class="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm cursor-pointer transition-opacity duration-300">
+                            <div class="text-center">
+                                <div class="w-24 h-24 bg-gradient-to-br from-ai-purple to-ai-cyan rounded-full flex items-center justify-center mb-4 mx-auto hover:scale-110 transition-transform shadow-2xl shadow-ai-purple/40">
+                                    <svg class="w-10 h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                </div>
+                                <p class="text-white text-lg font-semibold mb-1">Watch App Walkthrough</p>
+                                <p class="text-ai-purple text-sm">🔊 Click to play with sound</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Technical Specifications -->
             <div class="mt-14">
                 <div class="glass-card p-6 md:p-8 max-w-5xl mx-auto" id="tech-specs">
@@ -1463,6 +1498,35 @@
                 videoOverlay.style.opacity = '0';
                 setTimeout(() => {
                     videoOverlay.style.display = 'none';
+                }, 300);
+            });
+        }
+
+        // Walkthrough video player
+        const walkthroughVideo = document.getElementById('walkthrough-video');
+        const walkthroughOverlay = document.getElementById('walkthrough-play-overlay');
+
+        if (walkthroughVideo && walkthroughOverlay) {
+            // Load first frame as thumbnail
+            walkthroughVideo.addEventListener('loadeddata', () => {
+                walkthroughVideo.currentTime = 0.5;
+            });
+
+            // Click overlay to play with sound
+            walkthroughOverlay.addEventListener('click', () => {
+                walkthroughVideo.currentTime = 0;
+                walkthroughOverlay.style.opacity = '0';
+                setTimeout(() => {
+                    walkthroughOverlay.style.display = 'none';
+                }, 300);
+                walkthroughVideo.play();
+            });
+
+            // Also hide overlay if user clicks video directly
+            walkthroughVideo.addEventListener('play', () => {
+                walkthroughOverlay.style.opacity = '0';
+                setTimeout(() => {
+                    walkthroughOverlay.style.display = 'none';
                 }, 300);
             });
         }
