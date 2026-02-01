@@ -171,8 +171,9 @@ function estimateBreathingRateZeroCrossing(
   const avg = mean(signal);
   const centered = signal.map((v) => v - avg);
 
-  // Smooth with 0.5 second window to reduce noise
-  const windowSize = Math.floor(sampleRateHz * 0.5);
+  // HEAVY smoothing - 2 second window to remove noise, keep only breathing rhythm
+  // At 20Hz, this is 40 samples - filters out jitter while preserving 6-30 breath/min range
+  const windowSize = Math.floor(sampleRateHz * 2);
   const smoothed = movingAverage(centered, Math.max(3, windowSize));
 
   // Count zero crossings
@@ -188,11 +189,22 @@ function estimateBreathingRateZeroCrossing(
 
   // Each breath = 2 crossings (up and down)
   const durationMinutes = signal.length / sampleRateHz / 60;
-  const breathsPerMinute = crossings / 2 / durationMinutes;
+  let breathsPerMinute = crossings / 2 / durationMinutes;
 
   console.log(
     `[Breathing] Zero-crossing fallback: ${crossings} crossings → ${breathsPerMinute.toFixed(1)} breaths/min`
   );
+
+  // Sanity check - clamp to physiologically plausible range
+  if (breathsPerMinute < 4) {
+    console.log("[Breathing] WARNING: Rate too low (<4), may be signal drift");
+    breathsPerMinute = 0; // Don't report implausible values
+  } else if (breathsPerMinute > 40) {
+    console.log("[Breathing] WARNING: Rate too high (>40), may be noise");
+    breathsPerMinute = 0;
+  } else if (breathsPerMinute < 8 || breathsPerMinute > 25) {
+    console.log("[Breathing] Note: Rate outside typical range (8-25)");
+  }
 
   return breathsPerMinute;
 }

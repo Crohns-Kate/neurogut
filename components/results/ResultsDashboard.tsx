@@ -53,16 +53,16 @@ export default function ResultsDashboard({
       ? interpretVagalTone(analytics.vagalToneScore)
       : null;
 
+  // Show breathing interpretation if we have at least breathsPerMinute
+  // (from either peak detection or zero-crossing fallback)
   const breathingInterpretation =
-    analytics.breathsPerMinute !== undefined &&
-    analytics.avgInhaleDurationMs !== undefined &&
-    analytics.avgExhaleDurationMs !== undefined
+    analytics.breathsPerMinute !== undefined && analytics.breathsPerMinute > 0
       ? interpretBreathing(
           analytics.breathsPerMinute,
-          analytics.avgInhaleDurationMs,
-          analytics.avgExhaleDurationMs,
+          analytics.avgInhaleDurationMs ?? 0,
+          analytics.avgExhaleDurationMs ?? 0,
           analytics.inhaleExhaleRatio ?? 1,
-          analytics.breathingCoherence ?? 50,
+          analytics.breathingCoherence ?? 0,
           analytics.breathingPattern ?? "regular"
         )
       : null;
@@ -146,14 +146,13 @@ export default function ResultsDashboard({
         {/* Breathing - Special Card or Placeholder */}
         {breathingInterpretation &&
         analytics.breathsPerMinute !== undefined &&
-        analytics.avgInhaleDurationMs !== undefined &&
-        analytics.avgExhaleDurationMs !== undefined ? (
+        analytics.breathsPerMinute > 0 ? (
           <BreathingMetricCard
             breathsPerMin={analytics.breathsPerMinute}
-            avgInhaleMs={analytics.avgInhaleDurationMs}
-            avgExhaleMs={analytics.avgExhaleDurationMs}
+            avgInhaleMs={analytics.avgInhaleDurationMs ?? 0}
+            avgExhaleMs={analytics.avgExhaleDurationMs ?? 0}
             inhaleExhaleRatio={analytics.inhaleExhaleRatio ?? 1}
-            coherence={analytics.breathingCoherence ?? 50}
+            coherence={analytics.breathingCoherence ?? 0}
             pattern={analytics.breathingPattern ?? "regular"}
             interpretation={breathingInterpretation.interpretation}
           />

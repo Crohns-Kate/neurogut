@@ -1484,15 +1484,28 @@ export default function GutSoundRecordingScreen() {
           if (accelSamples.length > 0) {
             const breathingAnalysis = analyzeBreathPhases(accelSamples, 20);
 
+            console.log('[Record] Breathing result:', JSON.stringify({
+              breathsPerMinute: breathingAnalysis.breathsPerMinute,
+              cycles: breathingAnalysis.cycles.length,
+              pattern: breathingAnalysis.pattern,
+            }));
+
             // Merge breathing metrics into analytics
-            if (breathingAnalysis.cycles.length >= 3) {
+            // Accept data from either peak detection (3+ cycles) OR zero-crossing fallback (breathsPerMinute > 0)
+            if (breathingAnalysis.cycles.length >= 3 || breathingAnalysis.breathsPerMinute > 0) {
               analytics.breathsPerMinute = breathingAnalysis.breathsPerMinute;
-              analytics.avgInhaleDurationMs = breathingAnalysis.averageInhaleDuration;
-              analytics.avgExhaleDurationMs = breathingAnalysis.averageExhaleDuration;
-              analytics.inhaleExhaleRatio = breathingAnalysis.inhaleExhaleRatio;
-              analytics.breathingCoherence = breathingAnalysis.coherence;
-              analytics.breathingPattern = breathingAnalysis.pattern;
+              analytics.avgInhaleDurationMs = breathingAnalysis.averageInhaleDuration || 0;
+              analytics.avgExhaleDurationMs = breathingAnalysis.averageExhaleDuration || 0;
+              analytics.inhaleExhaleRatio = breathingAnalysis.inhaleExhaleRatio || 1;
+              analytics.breathingCoherence = breathingAnalysis.coherence || 0;
+              analytics.breathingPattern = breathingAnalysis.pattern || "irregular";
               analytics.breathCycleCount = breathingAnalysis.cycles.length;
+
+              console.log('[Record] Saving breathing data:', {
+                breathsPerMinute: analytics.breathsPerMinute,
+                pattern: analytics.breathingPattern,
+                cycleCount: analytics.breathCycleCount,
+              });
             }
           }
         } catch (error) {
