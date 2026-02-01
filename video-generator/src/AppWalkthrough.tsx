@@ -19,8 +19,8 @@ import { WalkthroughOutro } from "./scenes/walkthrough/WalkthroughOutro";
  * Voice: Charlotte (Australian) - ID: aRlmTYIQo6Tlg5SlulGC
  */
 
-// Gap between scenes (in seconds)
-const SCENE_GAP = 1.5;
+// Gap between scenes (in seconds) - just enough to prevent overlap
+const SCENE_GAP = 0.5;
 
 export const WALKTHROUGH_SCRIPT = {
   intro: {
@@ -30,42 +30,42 @@ export const WALKTHROUGH_SCRIPT = {
   },
   home: {
     text: "When you open the app, you're greeted with your personal dashboard. Here you'll see your Vagal Readiness Score, recent sessions, and a clear call to action for your daily check-in.",
-    startTime: 10 + SCENE_GAP,        // 11.5
+    startTime: 10 + SCENE_GAP,        // 10.5
     duration: 12,
   },
   placement: {
     text: "Before recording, our guided placement system helps you position your device correctly. We target the lower right quadrant of your abdomen, directly over the ileocecal valve, the gateway between your small and large intestine.",
-    startTime: 23.5 + SCENE_GAP,      // 25
+    startTime: 22.5 + SCENE_GAP,      // 23
     duration: 14,
   },
   recording: {
     text: "During the recording, you'll see real-time feedback. The anatomical mirror visualizes your gut sounds as they happen, while our signal quality indicator ensures you're capturing clean acoustic data.",
-    startTime: 39 + SCENE_GAP,        // 40.5
+    startTime: 37 + SCENE_GAP,        // 37.5
     duration: 13,
   },
   analysis: {
     text: "Once complete, our proprietary Insight Engine processes your recording. Advanced signal analysis extracts motility patterns, identifies borborygmi events, and measures the rhythmic signatures of your digestive system.",
-    startTime: 53.5 + SCENE_GAP,      // 55
+    startTime: 50.5 + SCENE_GAP,      // 51
     duration: 14,
   },
   results: {
     text: "Your results arrive in seconds. See your gut activity level, sound event timeline, and personalized insights. Every session builds your baseline, helping the app understand what's normal for you.",
-    startTime: 69 + SCENE_GAP,        // 70.5
+    startTime: 65 + SCENE_GAP,        // 65.5
     duration: 12,
   },
   vagal: {
     text: "The Vagal Readiness Score is your headline metric. It combines acoustic patterns, breathing response, and contextual factors to quantify your autonomic balance. This isn't just data. It's your personal window into gut-brain wellness.",
-    startTime: 82.5 + SCENE_GAP,      // 84
+    startTime: 77.5 + SCENE_GAP,      // 78
     duration: 15,
   },
   outro: {
     text: "Start your journey today. Download NeuroGut Acoustics and listen to what your gut is telling you.",
-    startTime: 99 + SCENE_GAP,        // 100.5
+    startTime: 93 + SCENE_GAP,        // 93.5
     duration: 8,
   },
 };
 
-export const WALKTHROUGH_DURATION_SECONDS = 110;
+export const WALKTHROUGH_DURATION_SECONDS = 102;
 
 export const AppWalkthrough: React.FC = () => {
   const { fps } = useVideoConfig();
